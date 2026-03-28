@@ -104,7 +104,7 @@ input,select,textarea,button{font-family:inherit;outline:none}
 </style>
 </head>
 <body>
-<div id="appdbg" style="padding:12px;font-family:monospace;font-size:11px;color:#3ecf8e;background:#0a0a0f;position:fixed;top:0;left:0;right:0;z-index:99999;max-height:40vh;overflow-y:auto;border-bottom:2px solid #333">DEBUG v2.5 cargando...</div>
+<div id="appdbg" style="padding:12px;font-family:monospace;font-size:11px;color:#3ecf8e;background:#0a0a0f;position:fixed;bottom:40px;left:0;right:0;z-index:99999;max-height:20vh;overflow-y:auto;border-bottom:2px solid #333">DEBUG v2.5 cargando...</div>
 <div id="app"></div>
 <script>
 var _dbg=document.getElementById("appdbg");
@@ -386,6 +386,7 @@ function setConField(code,key,val){
 }
 
 function getConData(code,cb){
+  DBG('getConData '+code);
   db.ref('construction/'+code).once('value',function(s){cb(s.val()||{})});
 }
 
@@ -417,6 +418,7 @@ function updLastSave(){
 }
 
 function getQualData(code,cb){
+  DBG('getQualData '+code);
   db.ref('quality/'+code).once('value',function(s){cb(s.val()||{})});
 }
 
@@ -600,6 +602,7 @@ function rConSelect(a){
 }
 
 function renderConSubs(){
+  DBG('renderConSubs pv='+V.conPv);
   var pv=V.conPv||0;
   var subsEl=document.getElementById('con-subs');
   var listEl=document.getElementById('con-list');
@@ -626,6 +629,7 @@ function renderConSubs(){
 }
 
 function renderConList(){
+  DBG('renderConList pv='+V.conPv+' sub='+V.conSub);
   var pv=V.conPv,sub=V.conSub||0;
   var listEl=document.getElementById('con-list');
   if(!listEl||!pv)return;
@@ -942,6 +946,7 @@ function rCalSelect(a){
 }
 
 function renderCalSubs(){
+  DBG('renderCalSubs pv='+V.calPv+' sub='+V.calSub);
   var pv=V.calPv||0;
   var subsEl=document.getElementById('cal-subs');
   var listEl=document.getElementById('cal-list');
@@ -967,6 +972,7 @@ function renderCalSubs(){
 }
 
 function renderCalList(){
+  DBG('renderCalList pv='+V.calPv+' sub='+V.calSub);
   var pv=V.calPv,sub=V.calSub||0;
   var listEl=document.getElementById('cal-list');
   if(!listEl||!pv)return;
