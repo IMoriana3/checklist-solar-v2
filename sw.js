@@ -1,5 +1,8 @@
-const CACHE_NAME = 'checklist-solar-v6';
-const urlsToCache = ['./', './index.html', './master.js', './master_con.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE_NAME = 'checklist-v2-v1';
+const urlsToCache = [
+  './', './index.html', './master.js', './master_con.js', 
+  './manifest.json', './icon-192.png', './icon-512.png'
+];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(urlsToCache)).then(() => self.skipWaiting()));
@@ -14,7 +17,13 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.url.includes('script.google.com') || e.request.url.includes('googleapis.com')) return;
+  // Never cache Firebase, Leaflet tiles, or auth requests
+  if (e.request.url.includes('firebase') || 
+      e.request.url.includes('googleapis') ||
+      e.request.url.includes('arcgisonline') ||
+      e.request.url.includes('gstatic')) return;
+  
+  // Network first, fallback to cache (always get latest version)
   e.respondWith(
     fetch(e.request).then(r => {
       if (r && r.status === 200) {

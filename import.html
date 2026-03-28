@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Importar datos v1 → Firebase</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#0f1117;--card:#1c1f2a;--bd:#2a2d3a;--tx:#e8eaed;--td:#8b8fa3;--ac:#3ecf8e;--no:#ef4444;--info:#3b82f6}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);padding:24px;max-width:800px;margin:0 auto}
+h1{font-size:22px;margin-bottom:4px}
+.sub{font-size:12px;color:var(--td);margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:20px;margin-bottom:16px}
+.card h2{font-size:16px;margin-bottom:12px}
+.btn{width:100%;padding:14px;border-radius:12px;font-size:15px;font-weight:700;border:none;cursor:pointer;margin-top:8px}
+.btn-primary{background:var(--ac);color:#000}
+.btn-info{background:var(--info);color:#fff}
+.btn-danger{background:var(--no);color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+input[type=file]{margin:8px 0;font-size:13px;color:var(--td)}
+.log{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12px;font-size:11px;font-family:monospace;max-height:300px;overflow-y:auto;margin-top:12px;white-space:pre-wrap;color:var(--td)}
+.progress{height:8px;border-radius:4px;background:var(--bd);margin-top:8px;overflow:hidden}
+.progress-bar{height:100%;border-radius:4px;background:var(--ac);transition:width .3s}
+.stat{display:inline-block;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;margin:2px}
+</style>
+</head>
+<body>
+
+<h1>📥 Importar datos v1 → Firebase</h1>
+<div class="sub">Migra los datos de Google Sheets al nuevo sistema Firebase</div>
+
+<div class="card">
+  <h2>1. Exportar desde Google Sheets</h2>
+  <p style="font-size:13px;color:var(--td);margin-bottom:8px">Abre tu Google Sheets de la v1 y descarga cada pestaña como CSV o el archivo completo como XLSX:</p>
+  <ul style="font-size:12px;color:var(--td);margin-left:16px;line-height:1.8">
+    <li><b>Historial</b> — los 10.000+ registros de campo</li>
+    <li><b>Resumen</b> — estado de cada tracker</li>
+    <li><b>Construcción</b> — datos de hincado (si existe)</li>
+  </ul>
+  <p style="font-size:12px;color:var(--td);margin-top:8px">Archivo → Descargar → Microsoft Excel (.xlsx)</p>
+</div>
+
+<div class="card">
+  <h2>2. Subir el archivo</h2>
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+  <div class="progress" id="progWrap" style="display:none"><div class="progress-bar" id="progBar" style="width:0%"></div></div>
+  <div id="stats" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
+  <h2>3. Importar a Firebase</h2>
+  <button class="btn btn-primary" id="btnImport" disabled onclick="doImport()">🚀 Importar todo a Firebase</button>
+  <button class="btn btn-danger" id="btnClear" onclick="if(confirm('¿Borrar TODOS los datos de Firebase?'))clearFirebase()" style="margin-top:8px">🗑️ Limpiar Firebase (peligroso)</button>
+</div>
+
+<div class="log" id="log">Esperando archivo...</div>
+
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBHKN65MLHScTNN-L5HwfvWqafAkfsFiAU",
+  authDomain:"construccionxamai.firebaseapp.com",
+  databaseURL:"https://construccionxamai-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:"construccionxamai",
+  storageBucket:"construccionxamai.firebasestorage.app",
+  messagingSenderId:"71667188901",
+  appId:"1:71667188901:web:663c605a1fbe53a3caf94c"
+});
+var db=firebase.database();
+var auth=firebase.auth();
+
+// Auth check
+auth.onAuthStateChanged(function(user){
+  if(!user){
+    log('❌ No estás logueado. Abre la app principal primero y luego vuelve aquí.');
+  }else{
+    log('✅ Conectado como '+user.email);
+  }
+});
+
+var PARSED={historial:[],resumen:[],construccion:[]};
+
+function log(msg){
+  var el=document.getElementById('log');
+  el.textContent+='\n'+msg;
+  el.scrollTop=el.scrollHeight;
+}
+
+function setProgress(pct){
+  document.getElementById('progWrap').style.display='block';
+  document.getElementById('progBar').style.width=pct+'%';
+}
+
+// Parse uploaded file
+document.getElementById('fileInput').addEventListener('change',function(e){
+  var file=e.target.files[0];
+  if(!file)return;
+  log('📂 Leyendo '+file.name+' ('+Math.round(file.size/1024)+' KB)...');
+  
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      var wb=XLSX.read(ev.target.result,{type:'array'});
+      log('📊 Hojas encontradas: '+wb.SheetNames.join(', '));
+      
+      var statsH='';
+      
+      // Parse Historial
+      if(wb.SheetNames.indexOf('Historial')>=0){
+        var ws=wb.Sheets['Historial'];
+        var data=XLSX.utils.sheet_to_json(ws,{header:1});
+        PARSED.historial=data.slice(1).filter(function(r){return r[1]});
+        log('✅ Historial: '+PARSED.historial.length+' registros');
+        statsH+='<span class="stat" style="background:rgba(62,207,142,.15);color:var(--ac)">Historial: '+PARSED.historial.length+'</span>';
+      }
+      
+      // Parse Resumen
+      if(wb.SheetNames.indexOf('Resumen')>=0){
+        var ws2=wb.Sheets['Resumen'];
+        var data2=XLSX.utils.sheet_to_json(ws2,{header:1});
+        // Find data start (row 11 = index 10)
+        PARSED.resumen=data2.slice(10).filter(function(r){return r[2]});
+        log('✅ Resumen: '+PARSED.resumen.length+' trackers');
+        statsH+='<span class="stat" style="background:rgba(59,130,246,.15);color:var(--info)">Resumen: '+PARSED.resumen.length+'</span>';
+      }
+      
+      // Parse Construcción
+      if(wb.SheetNames.indexOf('Construcción')>=0){
+        var ws3=wb.Sheets['Construcción'];
+        var data3=XLSX.utils.sheet_to_json(ws3,{header:1});
+        PARSED.construccion=data3.slice(1).filter(function(r){return r[1]});
+        log('✅ Construcción: '+PARSED.construccion.length+' registros');
+        statsH+='<span class="stat" style="background:rgba(245,158,11,.15);color:#f5a623">Construcción: '+PARSED.construccion.length+'</span>';
+      }
+      
+      // Parse individual tracker sheets
+      var trSheets=wb.SheetNames.filter(function(s){return s.match(/^TR\d{2}\.\d{3}/)});
+      if(trSheets.length>0){
+        log('📋 '+trSheets.length+' fichas de tracker encontradas');
+        statsH+='<span class="stat" style="background:rgba(167,139,250,.15);color:#a78bfa">Fichas: '+trSheets.length+'</span>';
+      }
+      
+      document.getElementById('stats').innerHTML=statsH;
+      document.getElementById('btnImport').disabled=false;
+      log('\n✅ Archivo parseado. Pulsa "Importar" para enviar a Firebase.');
+      
+    }catch(err){
+      log('❌ Error parseando archivo: '+err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+// Import to Firebase
+async function doImport(){
+  document.getElementById('btnImport').disabled=true;
+  var total=PARSED.historial.length+PARSED.construccion.length;
+  var done=0;
+  
+  // 1. Import Historial → quality/ (grouped by tracker, last value wins)
+  if(PARSED.historial.length>0){
+    log('\n🔄 Importando Historial a Firebase (quality/)...');
+    var qualData={};
+    
+    PARSED.historial.forEach(function(row){
+      // Cols: 0=Timestamp, 1=Tracker, 2=Pilar, 3=Campo, 4=Valor, 5=Técnico
+      var tracker=String(row[1]||'').trim();
+      var campo=String(row[3]||'').trim();
+      var valor=row[4];
+      if(!tracker||!campo)return;
+      
+      if(!qualData[tracker])qualData[tracker]={};
+      
+      // Convert value
+      if(valor===''||valor==null)return;
+      var v=valor;
+      if(!isNaN(valor)&&valor!=='')v=parseFloat(valor);
+      else v=String(valor);
+      
+      qualData[tracker][campo]=v;
+    });
+    
+    var trackers=Object.keys(qualData);
+    log('  '+trackers.length+' trackers con datos');
+    
+    // Write in batches of 50
+    for(var i=0;i<trackers.length;i+=50){
+      var batch={};
+      for(var j=i;j<Math.min(i+50,trackers.length);j++){
+        batch['quality/'+trackers[j]]=qualData[trackers[j]];
+      }
+      await db.ref().update(batch);
+      done+=Math.min(50,trackers.length-i);
+      setProgress(Math.round(done/total*50));
+      log('  '+Math.min(i+50,trackers.length)+'/'+trackers.length+' trackers');
+    }
+    log('✅ Historial importado: '+trackers.length+' trackers');
+  }
+  
+  // 2. Import Construcción → construction/
+  if(PARSED.construccion.length>0){
+    log('\n🔄 Importando Construcción a Firebase...');
+    var conData={};
+    
+    PARSED.construccion.forEach(function(row){
+      // Cols: 0=Timestamp, 1=Tracker, 2=Pilar, 3=Fila, 4=Campo, 5=Valor, 6=Técnico
+      var tracker=String(row[1]||'').trim();
+      var pilar=String(row[2]||'').trim();
+      var fila=String(row[3]||'').trim();
+      var campo=String(row[4]||'').trim();
+      var valor=String(row[5]||'').trim();
+      var tec=String(row[6]||'').trim();
+      if(!tracker||!campo)return;
+      
+      if(!conData[tracker])conData[tracker]={};
+      
+      // Build key from pilar index
+      // We need to figure out the pilar index from the pilar name
+      // For now store with the field name directly
+      var prefix=(fila==='Motor'||fila==='motor')?'fm':'fc';
+      // Extract index from campo if it has one (e.g. fm_0_estado)
+      if(campo.match(/^(fm|fc)_\d+_/)){
+        // Already has prefix
+        conData[tracker][campo]=valor;
+      }else{
+        // Build key
+        conData[tracker][campo]=valor;
+      }
+      if(tec)conData[tracker][campo.replace(/_[^_]+$/,'')+'_by']=tec;
+    });
+    
+    var conTrackers=Object.keys(conData);
+    log('  '+conTrackers.length+' trackers con datos de construcción');
+    
+    for(var i=0;i<conTrackers.length;i+=50){
+      var batch={};
+      for(var j=i;j<Math.min(i+50,conTrackers.length);j++){
+        batch['construction/'+conTrackers[j]]=conData[conTrackers[j]];
+      }
+      await db.ref().update(batch);
+      done+=Math.min(50,conTrackers.length-i);
+      setProgress(50+Math.round(done/total*50));
+      log('  '+Math.min(i+50,conTrackers.length)+'/'+conTrackers.length+' trackers');
+    }
+    log('✅ Construcción importada: '+conTrackers.length+' trackers');
+  }
+  
+  // 3. Import quality log entries
+  if(PARSED.historial.length>0){
+    log('\n🔄 Importando historial de cambios (quality_log/)...');
+    var logBatch={};
+    var count=0;
+    
+    // Only import last 5000 entries to avoid overwhelming Firebase
+    var entries=PARSED.historial.slice(-5000);
+    entries.forEach(function(row){
+      var key=db.ref('quality_log').push().key;
+      logBatch['quality_log/'+key]={
+        tracker:String(row[1]||''),
+        field:String(row[3]||''),
+        value:String(row[4]||''),
+        by:String(row[5]||''),
+        ts:row[0]?new Date(row[0]).getTime():Date.now(),
+        imported:true
+      };
+      count++;
+    });
+    
+    // Write in chunks
+    var logKeys=Object.keys(logBatch);
+    for(var i=0;i<logKeys.length;i+=200){
+      var chunk={};
+      for(var j=i;j<Math.min(i+200,logKeys.length);j++){
+        chunk[logKeys[j]]=logBatch[logKeys[j]];
+      }
+      await db.ref().update(chunk);
+      log('  '+Math.min(i+200,logKeys.length)+'/'+logKeys.length+' entradas');
+    }
+    log('✅ Log importado: '+count+' entradas');
+  }
+  
+  setProgress(100);
+  log('\n🎉 IMPORTACIÓN COMPLETADA');
+  log('Abre la app y verifica que los datos aparecen correctamente.');
+  document.getElementById('btnImport').textContent='✅ Importación completada';
+}
+
+async function clearFirebase(){
+  log('\n🗑️ Limpiando Firebase...');
+  await db.ref('quality').remove();
+  await db.ref('quality_log').remove();
+  await db.ref('construction').remove();
+  await db.ref('con_log').remove();
+  await db.ref('workflow').remove();
+  await db.ref('workflow_log').remove();
+  await db.ref('punchlist').remove();
+  log('✅ Firebase limpiado');
+}
+</script>
+</body>
+</html>
