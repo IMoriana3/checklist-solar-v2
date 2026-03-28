@@ -190,11 +190,11 @@ async function doImport(){
     // Write one tracker at a time to avoid overwhelming Firebase
     for(var i=0;i<trackers.length;i++){
       try{
-        await db.ref('quality/'+trackers[i]).set(qualData[trackers[i]]);
+        await db.ref('quality/'+trackers[i].replace(/\./g,'_')).set(qualData[trackers[i]]);
       }catch(e){
         log('  ⚠️ Error en '+trackers[i]+': '+e.message+' — reintentando...');
         await new Promise(function(r){setTimeout(r,1000)});
-        try{await db.ref('quality/'+trackers[i]).set(qualData[trackers[i]])}catch(e2){log('  ❌ Falló '+trackers[i])}
+        try{await db.ref('quality/'+trackers[i].replace(/\./g,'_')).set(qualData[trackers[i]])}catch(e2){log('  ❌ Falló '+trackers[i])}
       }
       done++;
       if(i%10===0||i===trackers.length-1){
@@ -244,11 +244,11 @@ async function doImport(){
     
     for(var i=0;i<conTrackers.length;i++){
       try{
-        await db.ref('construction/'+conTrackers[i]).set(conData[conTrackers[i]]);
+        await db.ref('construction/'+conTrackers[i].replace(/\./g,'_')).set(conData[conTrackers[i]]);
       }catch(e){
         log('  ⚠️ Error en '+conTrackers[i]+': '+e.message);
         await new Promise(function(r){setTimeout(r,1000)});
-        try{await db.ref('construction/'+conTrackers[i]).set(conData[conTrackers[i]])}catch(e2){}
+        try{await db.ref('construction/'+conTrackers[i].replace(/\./g,'_')).set(conData[conTrackers[i]])}catch(e2){}
       }
       if(i%10===0||i===conTrackers.length-1)log('  '+(i+1)+'/'+conTrackers.length+' trackers');
       if(i%20===0)await new Promise(function(r){setTimeout(r,200)});
