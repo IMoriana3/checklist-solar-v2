@@ -2981,7 +2981,7 @@ function dpOverview(el,d){
       +'<div style="font-size:9px;color:#94A3B8;font-weight:600;letter-spacing:.5px;margin-top:6px">'+s.l+'</div></div>';
   });
   counterHTML+='</div>';
-  h+=_dpCard('Contador de hincas','\ud83d\udd29',counterHTML);
+  h+=_dpCard('Contador de hincas ejecutadas','\ud83d\udd29',counterHTML);
 
   // --- TRACKER STATUS BARS (Amelia-style) ---
   var statData=[{l:'Validados',v:d.kpis.completed,c:'#16A34A'},{l:'En curso',v:d.kpis.inProgress,c:'#94A3B8'},{l:'Incidencias',v:d.kpis.incidents,c:'#F97316'},{l:'Pendientes',v:d.kpis.pending,c:'#3B82F6'}];
@@ -3017,7 +3017,14 @@ function dpOverview(el,d){
         for(var i=0;i<pils.length;i++){totalP++;var est=con[px+'_'+i+'_estado']||'';if(est==='hincada')hincP++;else if(est==='rechazo')rechP++}
       }
       var dotC=rechP>0?'#EF4444':hincP===totalP&&totalP>0?'#16A34A':hincP>0?'#F59E0B':'#CBD5E1';
-      dotHTML+='<div title="'+code+' ('+hincP+'/'+totalP+')" style="width:10px;height:10px;border-radius:50%;background:'+dotC+';cursor:default"></div>';
+      var statusTxt=rechP>0?rechP+' rechazo'+(rechP>1?'s':''):hincP===totalP&&totalP>0?'Completado':hincP>0?'En curso':'Pendiente';
+      var techName=con._lastBy||'';
+      dotHTML+='<div title="'+code+' \u2014 '+hincP+'/'+totalP+' hincas \u2014 '+statusTxt+(techName?' \u2014 '+techName:'')+'" '
+        +'onclick="V.conTr=\''+code+'\';V.screen=\'contractor\';V.conPi=0;V.conFila=\'motor\';R()" '
+        +'style="width:12px;height:12px;border-radius:50%;background:'+dotC+';cursor:pointer;transition:transform .15s;border:1px solid rgba(255,255,255,.3)" '
+        +'onmouseover="this.style.transform=\'scale(1.8)\';this.style.zIndex=\'10\';this.style.boxShadow=\'0 0 6px '+dotC+'\'" '
+        +'onmouseout="this.style.transform=\'scale(1)\';this.style.zIndex=\'0\';this.style.boxShadow=\'none\'"'
+        +'></div>';
     });
     dotHTML+='</div></div>';
   });
@@ -3139,7 +3146,7 @@ function dpTeam(el,d){
       });
       rh+='</tr></thead><tbody>';
       // Sort by production (most hincas first)
-      var ranked=d.byTech.slice().sort(function(a,b){return b.pilars-a.pilars});
+      var ranked=d.byTech.slice().filter(function(t){return t.pilars>=50}).sort(function(a,b){return b.pilars-a.pilars});
       ranked.forEach(function(t,i){
         var ratio=t.pilars>0?Math.round(t.rechazos/t.pilars*1000)/10:0;
         var effPct=t.started>0?Math.round(t.done/t.started*100):0;
