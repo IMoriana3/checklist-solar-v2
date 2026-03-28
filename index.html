@@ -186,6 +186,9 @@ function isCon(){return U&&(U.role==='construccion'||U.role==='supervisor'||isAd
 function isCal(){return U&&(U.role==='calidad'||U.role==='supervisor'||isAdmin())}
 
 // Firebase write helper
+// Firebase path sanitizer - dots not allowed in paths
+function fbCode(code){return code.replace(/\./g,'_')}
+
 function fbSet(path,val){return db.ref(path).set(val)}
 function fbPush(path,val){return db.ref(path).push(val)}
 function fbGet(path){return db.ref(path).once('value').then(function(s){return s.val()})}
@@ -387,14 +390,14 @@ function setConField(code,key,val){
 
 function getConData(code,cb){
   DBG('getConData '+code);
-  db.ref('construction/'+code).once('value',function(s){cb(s.val()||{})});
+  db.ref('construction/'+fbCode(code)).once('value',function(s){cb(s.val()||{})});
 }
 
 // ============================================================
 // QUALITY DATA (Firebase)
 // ============================================================
 function setQualField(code,key,val){
-  db.ref('quality/'+code+'/'+key).set(val);
+  db.ref('quality/'+fbCode(code)+'/'+key).set(val);
   db.ref('quality_log').push({tracker:code,field:key,value:String(val),by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP});
 }
 
@@ -419,7 +422,7 @@ function updLastSave(){
 
 function getQualData(code,cb){
   DBG('getQualData '+code);
-  db.ref('quality/'+code).once('value',function(s){cb(s.val()||{})});
+  db.ref('quality/'+fbCode(code)).once('value',function(s){cb(s.val()||{})});
 }
 
 // ============================================================
@@ -788,7 +791,7 @@ function rConTracker(a){
     h+='<div id="timer-slot"></div>';
     h+='</div>';
     // Load timer async
-    db.ref('timers/'+code+'/'+timerKey).once('value',function(ts){
+    db.ref('timers/'+fbCode(code)+'/'+timerKey).once('value',function(ts){
       var tel=document.getElementById('timer-slot');
       if(tel)tel.innerHTML=getTimerHTML(code,timerKey,ts.val());
     });
@@ -1189,7 +1192,7 @@ function renderResumen(){
       // Construction stats
       var conTotal=0,conHinc=0,conRech=0;
       codes.forEach(function(code){
-        var con=conAll[code]||{};
+        var con=conAll[fbCode(code)]||conAll[code]||{};
         var cfg2=PCFG[MASTER_DATA[code].type];
         for(var f=0;f<(cfg2.conducida?2:1);f++){
           var px2=f===0?'fm':'fc';var pils2=f===0?cfg2.motor:cfg2.conducida;
@@ -1206,7 +1209,7 @@ function renderResumen(){
       // Quality stats
       var qualStarted=0,qualTotal=codes.length;
       codes.forEach(function(code){
-        var qd=qualAll[code];
+        var qd=qualAll[fbCode(code)]||qualAll[code];
         if(qd&&Object.keys(qd).length>0)qualStarted++;
       });
       var qualPct=qualTotal>0?Math.round(qualStarted/qualTotal*100):0;
@@ -1338,11 +1341,12 @@ function rMap(a){
   h+='</div>';
   h+='<div id="mapWrap"><div id="mapEl"></div>';
   // Map nav breadcrumb
-  if(pv){
+  var _mpv=V.mapPv,_msub=V.mapSub;
+  if(_mpv){
     h+='<div style="padding:4px 16px;font-size:12px;color:var(--td)">';
     h+='<button onclick="V.mapPv=0;V.mapSub=0;loadMap()" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:12px">Todo</button>';
-    h+=' → <span style="color:var(--tx)">PV'+String(pv).padStart(2,'0')+'</span>';
-    if(sub)h+=' → <button onclick="V.mapSub=0;loadMap()" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:12px">Subcampos</button> → <span style="color:var(--tx)">Sub '+sub+'</span>';
+    h+=' → <span style="color:var(--tx)">PV'+String(_mpv).padStart(2,'0')+'</span>';
+    if(_msub)h+=' → <button onclick="V.mapSub=0;loadMap()" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:12px">Subcampos</button> → <span style="color:var(--tx)">Sub '+_msub+'</span>';
     h+='</div>';
   }
   h+='<div class="map-legend"><span><div class="dot" style="background:var(--ac)"></div>Hincado OK</span><span><div class="dot" style="background:var(--err)"></div>Rechazo</span><span><div class="dot" style="background:var(--info)"></div>Parcial</span><span><div class="dot" style="background:#555"></div>Sin datos</span></div>';
@@ -1399,7 +1403,7 @@ function loadMap(){
       bounds.push([ll.lat,ll.lng]);
       
       // Determine color from construction data
-      var con=conData[code]||{};
+      var con=conData[fbCode(code)]||conData[code]||{};
       var cfg=PCFG[d.type];
       var totalP=cfg.motor.length+(cfg.conducida?cfg.conducida.length:0);
       var hincP=0,rechP=0;
@@ -1505,7 +1509,7 @@ function exportPunchlistPDF(pv,sub,phase){
 // VERSIONING
 // ============================================================
 function createNewRevision(code,phase,result){
-  db.ref('quality/'+code).once('value',function(s){
+  db.ref('quality/'+fbCode(code)).once('value',function(s){
     var qualData=s.val()||{};
     db.ref('revisions/'+code+'/current').once('value',function(s2){
       var rev=s2.val()||1;
@@ -1523,11 +1527,11 @@ function createNewRevision(code,phase,result){
 // TRACKER LOCKING
 // ============================================================
 function lockTracker(code,reason){
-  db.ref('locks/'+code).set({locked:true,reason:reason||'',by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP});
+  db.ref('locks/'+fbCode(code)).set({locked:true,reason:reason||'',by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP});
   showToast('🔒 '+code+' bloqueado','var(--warn)');
 }
 function unlockTracker(code){
-  db.ref('locks/'+code).set({locked:false,by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP});
+  db.ref('locks/'+fbCode(code)).set({locked:false,by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP});
   showToast('🔓 '+code+' desbloqueado','var(--ac)');
 }
 

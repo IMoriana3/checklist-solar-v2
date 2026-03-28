@@ -140,7 +140,7 @@ function rCon(){
   
   Object.keys(D.con).forEach(function(code){
     var tr=D.con[code];
-    var m=typeof MASTER_DATA!=='undefined'?MASTER_DATA[code]:null;
+    var m=typeof MASTER_DATA!=='undefined'?(MASTER_DATA[code]||MASTER_DATA[code.replace(/_/g,'.')]):null;
     var pk=m?'PV'+String(m.pv).padStart(2,'0'):'?';
     Object.keys(tr).forEach(function(k){
       var p=k.match(/^(fm|fc)_(\d+)_estado$/);if(!p)return;
@@ -233,7 +233,7 @@ function rCal(){
   if(D.qual&&typeof MASTER_DATA!=='undefined'){
     var byPv={};
     Object.keys(D.qual).forEach(function(code){
-      var m=MASTER_DATA[code];if(!m)return;
+      var m=MASTER_DATA[code]||MASTER_DATA[code.replace(/_/g,'.')];if(!m)return;
       var pk='PV'+String(m.pv).padStart(2,'0');
       if(!byPv[pk])byPv[pk]={t:0,d:0};
       byPv[pk].d++;
