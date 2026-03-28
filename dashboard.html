@@ -48,9 +48,13 @@ body{font-family:'DM Sans',sans-serif;background:#0f1117;color:#e8eaed;min-heigh
   <button class="tab" onclick="swTab('cal',this)">✅ Calidad</button>
 </div>
 <div id="pcon"></div>
+<div id="debug" style="position:fixed;bottom:0;left:0;right:0;max-height:150px;overflow-y:auto;background:#000;color:#0f0;font-family:monospace;font-size:10px;padding:8px;z-index:9999;border-top:2px solid #333"></div>
 <div id="pcal" style="display:none"></div>
 
 <script>
+function dbg(msg){var el=document.getElementById('debug');if(el)el.innerHTML+=new Date().toLocaleTimeString()+' '+msg+'<br>';console.log(msg)}
+dbg('Script loaded');
+
 var app=firebase.initializeApp({
   apiKey:"AIzaSyBHKN65MLHScTNN-L5HwfvWqafAkfsFiAU",
   authDomain:"construccionxamai.firebaseapp.com",
@@ -72,9 +76,12 @@ function swTab(t,btn){
 }
 
 // AUTH
+dbg('Waiting for auth...');
 auth.onAuthStateChanged(function(user){
+  dbg('Auth state: '+(user?'logged in as '+user.email:'NOT logged in'));
   if(user){
     setSt('Cargando datos...','#f5a623');
+    dbg('Starting data load...');
     loadAll();
   }else{
     setSt('Login necesario','#ef4444');
@@ -86,7 +93,8 @@ function doLogin(){
   var em=document.getElementById('em').value;
   var pw=document.getElementById('pw').value;
   document.getElementById('err').textContent='Conectando...';
-  auth.signInWithEmailAndPassword(em,pw).catch(function(e){
+  dbg('Login attempt: '+em);
+  auth.signInWithEmailAndPassword(em,pw).then(function(){dbg('Login success')}).catch(function(e){dbg('Login error: '+e.message);
     document.getElementById('err').textContent=e.message;
   });
 }
@@ -103,10 +111,11 @@ function loadAll(){
   var loaded=0;
   function check(){loaded++;if(loaded>=4){setSt('En vivo','#3ecf8e');render()}}
   
-  db.ref('construction').on('value',function(s){D.con=s.val()||{};check();if(loaded>=4)render()},function(e){setSt('Error: '+e.message,'#ef4444');check()});
-  db.ref('workflow').on('value',function(s){D.wf=s.val()||{};check();if(loaded>=4)render()},function(e){check()});
-  db.ref('punchlist').on('value',function(s){D.pl=s.val()||{};check();if(loaded>=4)render()},function(e){check()});
-  db.ref('quality').on('value',function(s){D.qual=s.val()||{};check();if(loaded>=4)render()},function(e){check()});
+  dbg('Subscribing to construction...');
+  db.ref('construction').on('value',function(s){dbg('construction: '+Object.keys(s.val()||{}).length+' trackers');D.con=s.val()||{};check();if(loaded>=4)render()},function(e){dbg('construction ERROR: '+e.message);setSt('Error: '+e.message,'#ef4444');check()});
+  db.ref('workflow').on('value',function(s){dbg('workflow: OK');D.wf=s.val()||{};check();if(loaded>=4)render()},function(e){check()});
+  db.ref('punchlist').on('value',function(s){dbg('punchlist: OK');D.pl=s.val()||{};check();if(loaded>=4)render()},function(e){check()});
+  db.ref('quality').on('value',function(s){dbg('quality: '+Object.keys(s.val()||{}).length+' trackers');D.qual=s.val()||{};check();if(loaded>=4)render()},function(e){check()});
   
   // Timeout fallback
   setTimeout(function(){if(loaded<4){setSt('Parcial ('+loaded+'/4)','#f5a623');render()}},10000);
