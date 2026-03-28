@@ -104,7 +104,7 @@ input,select,textarea,button{font-family:inherit;outline:none}
 </style>
 </head>
 <body>
-<div id="appdbg" style="padding:12px;font-family:monospace;font-size:11px;color:#3ecf8e;background:#0a0a0f;position:fixed;bottom:40px;left:0;right:0;z-index:99999;max-height:20vh;overflow-y:auto;border-bottom:2px solid #333">DEBUG v2.6 cargando...</div>
+<div id="appdbg" style="padding:12px;font-family:monospace;font-size:11px;color:#3ecf8e;background:#0a0a0f;position:fixed;bottom:40px;left:0;right:0;z-index:99999;max-height:20vh;overflow-y:auto;border-bottom:2px solid #333">DEBUG v2.7 cargando...</div>
 <div id="app"></div>
 <script>
 var _dbg=document.getElementById("appdbg");
@@ -202,7 +202,7 @@ function rLogin(a){
   h+='<div class="login-card">';
   h+='<div class="login-logo">XAMAI · X-ELIO</div>';
   h+='<div class="login-title">ISFV ATALAYA</div>';
-  h+='<div class="login-sub">Checklist Solar v2.6</div>';
+  h+='<div class="login-sub">Checklist Solar v2.7</div>';
   h+='<input class="inp" id="l-email" type="email" placeholder="Email" style="margin-bottom:8px">';
   h+='<input class="inp" id="l-pass" type="password" placeholder="Contraseña" style="margin-bottom:14px">';
   h+='<button class="btn btn-primary" onclick="doLogin()">Entrar</button>';
@@ -1406,66 +1406,78 @@ function initMap(){
 
 function loadMap(){
   if(!MAP)return;
-  
-  // Clear old markers
   MAP_MARKERS.forEach(function(m){MAP.removeLayer(m)});
   MAP_MARKERS=[];
-  
-  var pv=V.mapPv||0;
-  var sub=V.mapSub||0;
-  var bounds=[];
-  
-  // Load construction data from Firebase
+  var pv=V.mapPv||0,sub=V.mapSub||0,bounds=[];
+
   db.ref('construction').once('value',function(snap){
     var conData=snap.val()||{};
-    
-    Object.keys(MASTER_DATA).forEach(function(code){
-      var d=MASTER_DATA[code];
-      if(pv&&d.pv!==pv)return;
-      if(sub&&d.sub!==sub)return;
-      if(!d.mx||!d.my)return;
-      
-      var ll=utmToLL(d.mx,d.my);
-      bounds.push([ll.lat,ll.lng]);
-      
-      // Determine color from construction data
-      var con=conData[code.replace(/\./g,'_')]||conData[code]||{};
-      var cfg=PCFG[d.type];
-      var totalP=cfg.motor.length+(cfg.conducida?cfg.conducida.length:0);
-      var hincP=0,rechP=0;
-      for(var f=0;f<(cfg.conducida?2:1);f++){
-        var px2=f===0?'fm':'fc';
-        var pils2=f===0?cfg.motor:cfg.conducida;
-        for(var i=0;i<pils2.length;i++){
-          var est=con[px2+'_'+i+'_estado']||'';
-          if(est==='hincada')hincP++;
-          else if(est==='rechazo')rechP++;
-        }
-      }
-      
-      var color=hincP===0&&rechP===0?'#555':rechP>0?'#ef4444':hincP>=totalP?'#22c55e':'#3b82f6';
-      var pct=totalP>0?Math.round(hincP/totalP*100):0;
-      
-      var marker=L.circleMarker([ll.lat,ll.lng],{
-        radius:6,
-        fillColor:color,
-        color:color,
-        weight:1,
-        opacity:0.8,
-        fillOpacity:0.7
-      }).addTo(MAP);
-      
-      marker.bindPopup('<div class="map-popup"><b>'+code+'</b><br>'+d.type+'<br>'
-        +(hincP>0||rechP>0?'Hincado: '+hincP+'/'+totalP+' ('+pct+'%)'+(rechP>0?' · '+rechP+' rechazos':''):'Sin datos de hincado')
-        +'<br><button onclick="V.screen=\'contractor\';V.conTr=\''+code+'\';V.conPi=0;V.conFila=\'motor\';R()" style="margin-top:6px;padding:6px 12px;border-radius:6px;background:#3ecf8e;color:#000;font-weight:700;font-size:11px;border:none;cursor:pointer;width:100%">Abrir tracker</button></div>');
-      
-      MAP_MARKERS.push(marker);
-    });
-    
-    if(bounds.length>0){
-      MAP.fitBounds(bounds,{padding:[20,20],maxZoom:17});
+
+    // LEVEL 1: No PV → show PV centers
+    if(!pv){
+      var pvs=[...new Set(Object.values(MASTER_DATA).map(function(d){return d.pv}))].sort(function(a,b){return a-b});
+      pvs.forEach(function(p){
+        var trs=Object.entries(MASTER_DATA).filter(function(e){return e[1].pv===p&&e[1].mx&&e[1].my});
+        if(!trs.length)return;
+        var ax=trs.reduce(function(a,e){return a+e[1].mx},0)/trs.length;
+        var ay=trs.reduce(function(a,e){return a+e[1].my},0)/trs.length;
+        var ll=utmToLL(ax,ay);bounds.push([ll.lat,ll.lng]);
+        var tp2=0,hk2=0,rj2=0;
+        trs.forEach(function(e){var cd=e[0],d=e[1],cn=conData[cd.replace(/\./g,'_')]||{},cfg=PCFG[d.type];if(!cfg)return;
+          for(var f=0;f<(cfg.conducida?2:1);f++){var px=f===0?'fm':'fc';var pls=f===0?cfg.motor:cfg.conducida;
+            for(var i=0;i<pls.length;i++){tp2++;var est=cn[px+'_'+i+'_estado']||'';if(est==='hincada')hk2++;else if(est==='rechazo')rj2++}}});
+        var pc=tp2>0?Math.round(hk2/tp2*100):0;
+        var co=hk2===0?'#555':rj2>0?'#ef4444':pc>=100?'#22c55e':'#3b82f6';
+        var mk=L.circleMarker([ll.lat,ll.lng],{radius:20,fillColor:co,color:'#fff',weight:2,opacity:1,fillOpacity:0.85}).addTo(MAP);
+        mk.bindTooltip('PV'+String(p).padStart(2,'0'),{permanent:true,direction:'center',className:'pv-label'});
+        mk.bindPopup('<div style="font-family:sans-serif;font-size:12px"><b>PV'+String(p).padStart(2,'0')+'</b><br>'+trs.length+' trackers<br>Hincado: '+pc+'%<br><button onclick="V.mapPv='+p+';loadMap()" style="margin-top:6px;padding:6px 12px;border-radius:6px;background:#3ecf8e;color:#000;font-weight:700;font-size:11px;border:none;cursor:pointer;width:100%">Entrar</button></div>');
+        MAP_MARKERS.push(mk);
+      });
+      if(bounds.length)MAP.fitBounds(bounds,{padding:[30,30]});
+      return;
     }
-  });
+
+    // LEVEL 2: PV selected, has subs → show subcampo centers
+    var hasSubs=[...new Set(Object.values(MASTER_DATA).filter(function(d){return d.pv===pv&&d.sub>0}).map(function(d){return d.sub}))].sort(function(a,b){return a-b});
+    if(hasSubs.length>0&&!sub){
+      hasSubs.forEach(function(s){
+        var trs=Object.entries(MASTER_DATA).filter(function(e){return e[1].pv===pv&&e[1].sub===s&&e[1].mx&&e[1].my});
+        if(!trs.length)return;
+        var ax=trs.reduce(function(a,e){return a+e[1].mx},0)/trs.length;
+        var ay=trs.reduce(function(a,e){return a+e[1].my},0)/trs.length;
+        var ll=utmToLL(ax,ay);bounds.push([ll.lat,ll.lng]);
+        var tp2=0,hk2=0;
+        trs.forEach(function(e){var cn=conData[e[0].replace(/\./g,'_')]||{},cfg=PCFG[e[1].type];if(!cfg)return;
+          for(var f=0;f<(cfg.conducida?2:1);f++){var px=f===0?'fm':'fc';var pls=f===0?cfg.motor:cfg.conducida;
+            for(var i=0;i<pls.length;i++){tp2++;if(cn[px+'_'+i+'_estado']==='hincada')hk2++}}});
+        var pc=tp2>0?Math.round(hk2/tp2*100):0;
+        var co=hk2===0?'#555':pc>=100?'#22c55e':'#3b82f6';
+        var mk=L.circleMarker([ll.lat,ll.lng],{radius:15,fillColor:co,color:'#fff',weight:2,opacity:1,fillOpacity:0.85}).addTo(MAP);
+        mk.bindTooltip('S'+s,{permanent:true,direction:'center',className:'pv-label'});
+        mk.bindPopup('<div style="font-family:sans-serif;font-size:12px"><b>Sub '+s+'</b><br>'+trs.length+' trackers · '+pc+'%<br><button onclick="V.mapSub='+s+';loadMap()" style="margin-top:6px;padding:6px 12px;border-radius:6px;background:#3ecf8e;color:#000;font-weight:700;font-size:11px;border:none;cursor:pointer;width:100%">Ver trackers</button></div>');
+        MAP_MARKERS.push(mk);
+      });
+      if(bounds.length)MAP.fitBounds(bounds,{padding:[30,30]});
+      return;
+    }
+
+    // LEVEL 3: Individual trackers
+    Object.entries(MASTER_DATA).forEach(function(e){
+      var code=e[0],d=e[1];
+      if(d.pv!==pv)return;if(sub&&d.sub!==sub)return;if(!d.mx||!d.my)return;
+      var ll=utmToLL(d.mx,d.my);bounds.push([ll.lat,ll.lng]);
+      var cn=conData[code.replace(/\./g,'_')]||{},cfg=PCFG[d.type];
+      var tp2=cfg.motor.length+(cfg.conducida?cfg.conducida.length:0),hk2=0,rj2=0;
+      for(var f=0;f<(cfg.conducida?2:1);f++){var px=f===0?'fm':'fc';var pls=f===0?cfg.motor:cfg.conducida;
+        for(var i=0;i<pls.length;i++){var est=cn[px+'_'+i+'_estado']||'';if(est==='hincada')hk2++;else if(est==='rechazo')rj2++}}
+      var co=hk2===0&&rj2===0?'#555':rj2>0?'#ef4444':hk2>=tp2?'#22c55e':'#3b82f6';
+      var pc=tp2>0?Math.round(hk2/tp2*100):0;
+      var mk=L.circleMarker([ll.lat,ll.lng],{radius:6,fillColor:co,color:co,weight:1,opacity:0.8,fillOpacity:0.7}).addTo(MAP);
+      mk.bindPopup('<div style="font-family:sans-serif;font-size:12px"><b>'+code+'</b><br>'+d.type+'<br>'+(hk2>0||rj2>0?'Hincado: '+hk2+'/'+tp2+' ('+pc+'%)'+(rj2>0?' · '+rj2+' rechazos':''):'Sin datos')+'<br><button onclick="V.screen=\'contractor\';V.conTr=\''+code+'\';V.conPi=0;V.conFila=\'motor\';R()" style="margin-top:6px;padding:6px 12px;border-radius:6px;background:#3ecf8e;color:#000;font-weight:700;font-size:11px;border:none;cursor:pointer;width:100%">Abrir</button></div>');
+      MAP_MARKERS.push(mk);
+    });
+    if(bounds.length)MAP.fitBounds(bounds,{padding:[20,20],maxZoom:17});
+  },function(err){DBG('Map error: '+err.message)});
 }
 
 
