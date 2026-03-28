@@ -11,9 +11,9 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <!-- Firebase SDKs -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js" crossorigin="anonymous"></script>
 
 <!-- Master data -->
 <script src="master.js"></script>
@@ -88,9 +88,8 @@ input,select,textarea,button{font-family:inherit;outline:none}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:999;transition:opacity .3s;pointer-events:none}
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
 <style>
 #mapWrap{width:100%;height:calc(100vh - 120px);position:relative}
 #mapEl{width:100%;height:100%}
@@ -111,7 +110,8 @@ input,select,textarea,button{font-family:inherit;outline:none}
 var _dbg=document.getElementById("appdbg");
 function DBG(m){if(_dbg)_dbg.innerHTML+=("<br>"+new Date().toLocaleTimeString()+" "+m);console.log("DBG:",m)}
 DBG("HTML parsed OK");
-window.onerror=function(msg,url,line){DBG("❌ JS ERROR: "+msg+" at line "+line);return false};
+window.onerror=function(msg,url,line,col,err){DBG("❌ JS ERROR: "+msg+" at line "+line+(col?":"+col:"")+(err&&err.stack?" | "+err.stack.split("\n")[0]:url?" | src="+url:""));return false};
+window.addEventListener('unhandledrejection',function(e){DBG("❌ PROMISE: "+(e.reason?e.reason.message||e.reason:'unknown'))});
 </script>
 <div id="toast" class="toast" style="opacity:0"></div>
 <div id="statusBar" style="position:fixed;bottom:0;left:0;right:0;padding:4px 16px;background:var(--bg);border-top:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--tx3);z-index:50">
@@ -396,7 +396,7 @@ function getConData(code,cb){
   try{
     db.ref('construction/'+safe).once('value',function(s){
       DBG('getConData result: '+(s.val()?Object.keys(s.val()).length+' fields':'empty'));
-      cb(s.val()||{});
+      try{cb(s.val()||{})}catch(cbErr){DBG('❌ getConData RENDER error: '+cbErr.message+' at '+cbErr.stack)}
     },function(err){
       DBG('getConData error: '+err.message);
       cb({});
@@ -441,7 +441,7 @@ function getQualData(code,cb){
   try{
     db.ref('quality/'+safe).once('value',function(s){
       DBG('getQualData result: '+(s.val()?Object.keys(s.val()).length+' fields':'empty'));
-      cb(s.val()||{});
+      try{cb(s.val()||{})}catch(cbErr){DBG('❌ getQualData RENDER error: '+cbErr.message+' at '+cbErr.stack)}
     },function(err){
       DBG('getQualData error: '+err.message);
       cb({});
@@ -1829,6 +1829,7 @@ function _dpDestroy(){_dpCharts.forEach(function(c){try{c.destroy()}catch(e){}})
 
 function rDashPro(a){
   _dpDestroy();
+  _dpTab='overview';
   var CC={bg:'#F4F6F9',card:'#FFFFFF',bd:'#E2E8F0',tx:'#1E293B',ts:'#64748B',tm:'#94A3B8',
     green:'#16A34A',greenS:'#DCFCE7',amber:'#F59E0B',amberS:'#FEF3C7',red:'#EF4444',redS:'#FEE2E2',
     blue:'#3B82F6',blueS:'#DBEAFE',accent:'#059669',accentS:'#D1FAE5',purple:'#8B5CF6',purpleS:'#EDE9FE'};
@@ -1869,7 +1870,16 @@ function rDashPro(a){
   h+='</div>'; // root
 
   a.innerHTML=h;
-  dpLoadData();
+  // Lazy-load Chart.js only when Dashboard Pro opens
+  if(typeof Chart==='undefined'){
+    var sc=document.createElement('script');
+    sc.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+    sc.onload=function(){DBG('Chart.js loaded OK');dpLoadData()};
+    sc.onerror=function(){DBG('Chart.js failed to load');dpLoadData()};
+    document.head.appendChild(sc);
+  }else{
+    dpLoadData();
+  }
 }
 
 var _dpData=null;
@@ -1887,6 +1897,115 @@ function dpTab(t){
 }
 
 function dpLoadData(){
+  // --- DEMO DATA GENERATOR ---
+  if(!window._dpDemoData){
+    window._dpDemoData=function(){
+      var techs=['Sergio Boned','Ra\u00fal G.','Carlos Mart\u00ednez','Javier L\u00f3pez','David Ruiz'];
+      var pvCounts=[122,130,128,126,134,120,132,118,124,130,126,128,120,118];
+      var byPv=[];var demoCon={};
+      var totalDone=0,totalCurso=0,totalInc=0,totalPend=0,totalPilT=0,totalPilD=0;
+
+      pvCounts.forEach(function(cnt,pi){
+        var pvNum=pi+1;var pvName='PV'+String(pvNum).padStart(2,'0');
+        var done=0,issues=0,curso=0,pilT=0,pilD=0;
+        var progress=Math.max(0.05,1-(pi/14));// PV01 almost done, PV14 just started
+
+        // Use real MASTER_DATA codes if available
+        var realCodes=Object.keys(MASTER_DATA).filter(function(c){return MASTER_DATA[c].pv===pvNum}).sort();
+        var useCount=realCodes.length>0?realCodes.length:cnt;
+
+        for(var t=0;t<useCount;t++){
+          var code=realCodes[t]||String(pvNum).padStart(2,'0')+'.'+(200+t);
+          var fc=code.replace(/\./g,'_');
+          var cfg=MASTER_DATA[code]?PCFG[MASTER_DATA[code].type]:null;
+          var rand=Math.random();
+          var nPilars=cfg?(cfg.conducida?cfg.motor.length+cfg.conducida.length:cfg.motor.length):(rand<0.4?5:9);
+          pilT+=nPilars;var pDone=0,pRech=0;
+
+          var trkDone=rand<progress*0.85;
+          var trkCurso=!trkDone&&rand<progress;
+          var trkIssue=Math.random()<0.06;
+
+          demoCon[fc]={};
+          for(var p=0;p<nPilars;p++){
+            if(trkDone||(trkCurso&&Math.random()<0.7)){
+              if(trkIssue&&p===Math.floor(nPilars/2)){
+                demoCon[fc]['fm_'+p+'_estado']='rechazo';pRech++;
+              }else{
+                demoCon[fc]['fm_'+p+'_estado']='hincada';pDone++;
+              }
+            }
+          }
+          pilD+=pDone;
+          if(pDone===nPilars)done++;
+          else if(pDone>0)curso++;
+          if(pRech>0)issues++;
+        }
+
+        totalDone+=done;totalCurso+=curso;totalInc+=issues;
+        totalPend+=cnt-done-curso;totalPilT+=pilT;totalPilD+=pilD;
+        byPv.push({pv:pvName,total:cnt,done:done,issues:issues,pilTotal:pilT,pilDone:pilD});
+      });
+
+      var total=pvCounts.reduce(function(s,v){return s+v},0);
+      var pct=Math.round(totalDone/total*1000)/10;
+
+      // By tech
+      var byTech=techs.map(function(name,i){
+        var share=[0.28,0.24,0.20,0.16,0.12][i];
+        var pil=Math.round(totalPilD*share);
+        var d2=Math.round(totalDone*share);
+        var s2=Math.round((totalDone+totalCurso)*share);
+        return{name:name,done:d2,started:s2,issues:Math.round(totalInc*share*(1+i*0.1)),pilars:pil};
+      });
+
+      // Daily (last 30 days, realistic pattern)
+      var daily=[];var calMap2={};
+      var now2=new Date();
+      for(var dd=29;dd>=0;dd--){
+        var dt=new Date(now2);dt.setDate(dt.getDate()-dd);
+        var isWknd=dt.getDay()===0||dt.getDay()===6;
+        var cnt2=isWknd?0:Math.floor(Math.random()*30+15);
+        var dk2=dt.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});
+        daily.push({date:dk2,count:cnt2});
+        var iso2=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+        calMap2[iso2]=cnt2;
+      }
+      // Fill heatmap for last 6 months
+      for(var dd2=180;dd2>30;dd2--){
+        var dt2=new Date(now2);dt2.setDate(dt2.getDate()-dd2);
+        var isWknd2=dt2.getDay()===0||dt2.getDay()===6;
+        var iso3=dt2.getFullYear()+'-'+String(dt2.getMonth()+1).padStart(2,'0')+'-'+String(dt2.getDate()).padStart(2,'0');
+        calMap2[iso3]=isWknd2?0:Math.floor(Math.random()*35+5);
+      }
+
+      var wkDays=daily.filter(function(x){return x.count>0}).length;
+      var dAvg=wkDays>0?Math.round(totalPilD/wkDays):0;
+
+      // Incidents
+      var incidentList=[
+        {tracker:'TR07.234',pv:'PV07',field:'Verticalidad pilar 3 fuera de tolerancia',tech:'David Ruiz',date:'28/03'},
+        {tracker:'TR10.312',pv:'PV10',field:'Altura hinca pilar 1 insuficiente (-0.15m)',tech:'Ra\u00fal G.',date:'28/03'},
+        {tracker:'TR09.288',pv:'PV09',field:'Rechazo pilar 5 — roca a 1.2m',tech:'Carlos Mart\u00ednez',date:'27/03'},
+        {tracker:'TR10.305',pv:'PV10',field:'Nivelaci\u00f3n N-S pilar 4 > 2\u00b0',tech:'David Ruiz',date:'27/03'},
+        {tracker:'TR06.248',pv:'PV06',field:'Predrill necesario — terreno compacto',tech:'Javier L\u00f3pez',date:'26/03'},
+        {tracker:'TR12.345',pv:'PV12',field:'Rechazo pilar 7 — desviaci\u00f3n XY > 5cm',tech:'Sergio Boned',date:'26/03'},
+        {tracker:'TR13.318',pv:'PV13',field:'Cota hinca pilar 2 fuera de rango',tech:'Ra\u00fal G.',date:'25/03'},
+        {tracker:'TR11.290',pv:'PV11',field:'Pilar 3 rotaci\u00f3n > 3\u00b0',tech:'Carlos Mart\u00ednez',date:'25/03'},
+        {tracker:'TR14.335',pv:'PV14',field:'Altura pilar 6 rechazo — rehincado requerido',tech:'David Ruiz',date:'24/03'},
+        {tracker:'TR05.240',pv:'PV05',field:'Pilar motor inclinaci\u00f3n E/O > 1.5\u00b0',tech:'Javier L\u00f3pez',date:'24/03'}
+      ];
+
+      return{
+        kpis:{total:total,completed:totalDone,inProgress:totalCurso,incidents:totalInc,pending:total-totalDone-totalCurso,pct:pct},
+        byPv:byPv,byTech:byTech,daily:daily,incidents:incidentList,
+        calMap:calMap2,workDays:wkDays,dailyAvg:dAvg,totalLogs:daily.reduce(function(s,x){return s+x.count},0),
+        recentLogs:[],_demoCon:demoCon
+      };
+    };
+  }
+  // --- END DEMO DATA ---
+
   var el=document.getElementById('dp-content');
   el.innerHTML='<div style="text-align:center;padding:40px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#059669;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px"></div>Cargando datos de Firebase...</div>';
 
@@ -1902,8 +2021,7 @@ function dpLoadData(){
     var wfAll=results[2].val()||{};
     var plAll=results[3].val()||{};
     var logAll=results[4].val()||{};
-
-    // Process data
+    CACHE._dpCon=conAll;
     var kpis={total:0,completed:0,inProgress:0,incidents:0,pending:0,pct:0};
     var pvMap={};
     var techMap={};
@@ -1997,15 +2115,48 @@ function dpLoadData(){
     var byPv=Object.values(pvMap).sort(function(a2,b2){return a2.pv.localeCompare(b2.pv,undefined,{numeric:true})});
     var byTech=Object.values(techMap).sort(function(a2,b2){return (b2.pilars||b2.done)-(a2.pilars||a2.done)});
 
-    _dpData={kpis:kpis,byPv:byPv,byTech:byTech,daily:daily,incidents:incidents.slice(0,20)};
+    // Calendar heatmap data (last 6 months by ISO date)
+    var calMap={};
+    logArr.forEach(function(l){
+      if(!l.ts)return;
+      var d=new Date(l.ts);
+      var iso=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      calMap[iso]=(calMap[iso]||0)+1;
+    });
 
-    document.getElementById('dp-meta').innerHTML='Actualizado '+new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
-    document.getElementById('dp-footer').textContent='Checklist Solar v2.8 · ISFV ATALAYA · '+kpis.total+' trackers · Xamai Global · '+new Date().toLocaleDateString('es-ES',{year:'numeric',month:'long',day:'numeric'});
+    // Work stats
+    var workDays=Object.keys(dayMap).length;
+    var totalLogs=logArr.length;
+    var dailyAvg=workDays>0?Math.round(totalLogs/workDays):0;
+
+    // Recent logs (last 10)
+    var recentLogs=logArr.slice(-10).reverse().map(function(l){
+      return{tracker:l.tracker||'',field:l.field||'',value:l.value||'',by:l.by||'',ts:l.ts};
+    });
+
+    _dpData={kpis:kpis,byPv:byPv,byTech:byTech,daily:daily,incidents:incidents.slice(0,20),calMap:calMap,workDays:workDays,dailyAvg:dailyAvg,totalLogs:totalLogs,recentLogs:recentLogs};
+
+    // If no real data, inject demo
+    if(kpis.total===0){
+      DBG('No data from Firebase — loading DEMO');
+      _dpData=_dpDemoData();
+      CACHE._dpCon=_dpData._demoCon||{};
+      document.getElementById('dp-meta').innerHTML='<span style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">DEMO</span> '+new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+    }else{
+      document.getElementById('dp-meta').innerHTML='Actualizado '+new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+    }
+    document.getElementById('dp-footer').textContent='Checklist Solar v2.8 · ISFV ATALAYA · '+_dpData.kpis.total+' trackers · Xamai Global · '+new Date().toLocaleDateString('es-ES',{year:'numeric',month:'long',day:'numeric'});
 
     dpRenderKPIs();
     dpRender();
   }).catch(function(err){
-    document.getElementById('dp-content').innerHTML='<div style="padding:30px;text-align:center;color:#EF4444">Error: '+err.message+'</div>';
+    DBG('dpLoadData error: '+err.message+' — loading DEMO');
+    _dpData=_dpDemoData();
+    CACHE._dpCon=_dpData._demoCon||{};
+    document.getElementById('dp-meta').innerHTML='<span style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">DEMO</span>';
+    document.getElementById('dp-footer').textContent='Checklist Solar v2.8 · ISFV ATALAYA · DEMO · Xamai Global';
+    dpRenderKPIs();
+    dpRender();
   });
 }
 
@@ -2051,54 +2202,164 @@ function _dpCard(title,icon,content){
 }
 
 function dpOverview(el,d){
-  // Inject responsive style once
   if(!document.getElementById('dp-grid-style')){
     var sty=document.createElement('style');sty.id='dp-grid-style';
-    sty.textContent='.dp-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:700px){.dp-grid2{grid-template-columns:1fr}}.dp-grid2>div{min-width:0;overflow:hidden}';
+    sty.textContent='.dp-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.dp-grid2>div{min-width:0;overflow:hidden}.dp-full{grid-column:1/-1}@media(max-width:700px){.dp-grid2{grid-template-columns:1fr}}';
     document.head.appendChild(sty);
   }
-  var h='<div class="dp-grid2">';
+  var totalPilars=0,totalPilDone=0;
+  d.byPv.forEach(function(p){totalPilars+=p.pilTotal;totalPilDone+=p.pilDone});
+  var pilPct=totalPilars>0?Math.round(totalPilDone/totalPilars*1000)/10:0;
+  var trkPct=d.kpis.total>0?Math.round(d.kpis.completed/d.kpis.total*1000)/10:0;
+  var workDays=d.daily.filter(function(x){return x.count>0}).length||1;
+  var dailyAvg=Math.round(totalPilDone/workDays);
 
-  // Donut — using canvas
-  var donutHTML='<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:center">'
-    +'<div style="width:140px;height:140px;flex-shrink:0"><canvas id="dp-donut" width="140" height="140"></canvas></div>'
-    +'<div style="display:flex;flex-direction:column;gap:8px">'
-    +_dpLegendItem('#16A34A','Validados',d.kpis.completed)
-    +_dpLegendItem('#3B82F6','En curso',d.kpis.inProgress)
-    +_dpLegendItem('#EF4444','Incidencias',d.kpis.incidents)
-    +_dpLegendItem('#CBD5E1','Pendientes',d.kpis.pending)
-    +'</div></div>'
-    +'<div style="text-align:center;margin-top:14px;padding-top:12px;border-top:1px solid #E2E8F0">'
-    +'<span style="font-size:34px;font-weight:700;color:#059669">'+d.kpis.pct+'%</span>'
-    +'<div style="font-size:11px;color:#94A3B8">avance total de obra</div></div>';
-  h+=_dpCard('Estado global','🎯',donutHTML);
+  var h='';
+  // === TOP KPI ROW (Amelia style) ===
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px">';
+  function kpiBar(label,val,total,pct,color){
+    return '<div style="background:#fff;border-radius:14px;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid #E2E8F0">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+      +'<span style="font-size:12px;color:#64748B;font-weight:500">'+label+'</span>'
+      +'<span style="background:'+color+'18;color:'+color+';font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px">'+pct+'%</span></div>'
+      +'<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:10px">'
+      +'<span style="font-size:28px;font-weight:700;color:#1E293B;line-height:1">'+val.toLocaleString("es-ES")+'</span>'
+      +'<span style="font-size:13px;color:#94A3B8"> / '+total.toLocaleString("es-ES")+'</span></div>'
+      +'<div style="width:100%;height:6px;border-radius:3px;background:#F1F5F9;overflow:hidden">'
+      +'<div style="height:100%;border-radius:3px;background:'+color+';width:'+Math.min(pct,100)+'%;transition:width .8s"></div></div></div>';
+  }
+  h+=kpiBar('Trackers validados',d.kpis.completed,d.kpis.total,trkPct,'#16A34A');
+  h+=kpiBar('Pilares hincados',totalPilDone,totalPilars,pilPct,'#3B82F6');
+  h+=kpiBar('Incidencias',d.kpis.incidents,d.kpis.total,d.kpis.total>0?Math.round(d.kpis.incidents/d.kpis.total*1000)/10:0,'#EF4444');
+  h+='</div>';
 
-  // Daily bar chart — wrapped in fixed-height container with overflow hidden
-  h+=_dpCard('Actividad diaria (últimos 30 días)','📈','<div style="position:relative;height:200px;width:100%;overflow:hidden"><canvas id="dp-daily"></canvas></div>');
+  // === MAIN GRID ===
+  h+='<div class="dp-grid2">';
 
-  // Technicians
-  var techHTML='';
-  var colors=[{c:'#16A34A',bg:'#DCFCE7'},{c:'#3B82F6',bg:'#DBEAFE'},{c:'#8B5CF6',bg:'#EDE9FE'},{c:'#F59E0B',bg:'#FEF3C7'},{c:'#EF4444',bg:'#FEE2E2'}];
+  // --- CALENDAR HEATMAP ---
+  var calHTML='';
+  var today2=new Date();
+  var weeks=26;var startDate=new Date(today2);startDate.setDate(startDate.getDate()-weeks*7+1);
+  while(startDate.getDay()!==1)startDate.setDate(startDate.getDate()-1);
+  var months=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  var dayLabels=['','Lun','','Mi\u00e9','','Vie',''];
+  var calTotal=0;Object.keys(d.calMap).forEach(function(k){calTotal+=d.calMap[k]});
+  calHTML+='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><div style="display:inline-block;min-width:100%">';
+  calHTML+='<div style="display:flex;padding-left:28px;margin-bottom:2px">';
+  var prevM=-1;var dIter=new Date(startDate);
+  for(var w=0;w<weeks;w++){
+    var m=dIter.getMonth();
+    if(m!==prevM){calHTML+='<span style="font-size:9px;color:#94A3B8;min-width:14px">'+months[m]+'</span>';prevM=m}
+    else{calHTML+='<span style="min-width:14px"></span>'}
+    dIter.setDate(dIter.getDate()+7);
+  }
+  calHTML+='</div><div style="display:flex;gap:0">';
+  calHTML+='<div style="display:flex;flex-direction:column;gap:2px;margin-right:4px">';
+  dayLabels.forEach(function(dl){calHTML+='<div style="height:12px;width:24px;font-size:8px;color:#94A3B8;display:flex;align-items:center">'+dl+'</div>'});
+  calHTML+='</div>';
+  for(var w2=0;w2<weeks;w2++){
+    calHTML+='<div style="display:flex;flex-direction:column;gap:2px">';
+    for(var dow=0;dow<7;dow++){
+      var cellDate=new Date(startDate);cellDate.setDate(cellDate.getDate()+w2*7+dow);
+      if(cellDate>today2){calHTML+='<div style="width:12px;height:12px"></div>';continue}
+      var isoKey=cellDate.getFullYear()+'-'+String(cellDate.getMonth()+1).padStart(2,'0')+'-'+String(cellDate.getDate()).padStart(2,'0');
+      var cnt=d.calMap[isoKey]||0;
+      var bg=cnt===0?'#EBEDF0':cnt<=5?'#9BE9A8':cnt<=15?'#40C463':cnt<=25?'#30A14E':'#216E39';
+      var tip=cellDate.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'})+': '+cnt;
+      calHTML+='<div title="'+tip+'" style="width:12px;height:12px;border-radius:2px;background:'+bg+';cursor:default"></div>';
+    }
+    calHTML+='</div>';
+  }
+  calHTML+='</div></div></div>';
+  calHTML+='<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">';
+  calHTML+='<span style="font-size:10px;color:#64748B;font-weight:500">'+calTotal.toLocaleString('es-ES')+' registros en '+d.workDays+' d\u00edas</span>';
+  calHTML+='<div style="display:flex;align-items:center;gap:3px"><span style="font-size:9px;color:#94A3B8">Menos</span>';
+  ['#EBEDF0','#9BE9A8','#40C463','#30A14E','#216E39'].forEach(function(c){
+    calHTML+='<div style="width:10px;height:10px;border-radius:2px;background:'+c+'"></div>';
+  });
+  calHTML+='<span style="font-size:9px;color:#94A3B8">M\u00e1s</span></div></div>';
+  h+=_dpCard('Calendario','\ud83d\udcc5',calHTML);
+
+  // --- DAILY CHART ---
+  h+=_dpCard('Hincas diarias','\ud83d\udcc8','<div style="position:relative;height:180px;width:100%;overflow:hidden"><canvas id="dp-daily"></canvas></div>');
+
+  // --- PILE COUNTER (Amelia-style) ---
+  var counterHTML='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">';
+  [{l:'TOTAL',v:totalPilDone,c:'#059669'},{l:'MEDIA DIARIA',v:dailyAvg,c:'#1E293B'},{l:'D\u00cdAS TRABAJADOS',v:workDays,c:'#1E293B'}].forEach(function(s){
+    counterHTML+='<div style="text-align:center;padding:14px 8px;background:#F8FAFC;border-radius:10px">'
+      +'<div style="font-size:34px;font-weight:700;color:'+s.c+';line-height:1">'+s.v.toLocaleString("es-ES")+'</div>'
+      +'<div style="font-size:9px;color:#94A3B8;font-weight:600;letter-spacing:.5px;margin-top:6px">'+s.l+'</div></div>';
+  });
+  counterHTML+='</div>';
+  h+=_dpCard('Contador de pilares','\ud83d\udd29',counterHTML);
+
+  // --- TRACKER STATUS BARS (Amelia-style) ---
+  var statData=[{l:'Validados',v:d.kpis.completed,c:'#16A34A'},{l:'En curso',v:d.kpis.inProgress,c:'#94A3B8'},{l:'Incidencias',v:d.kpis.incidents,c:'#F97316'},{l:'Pendientes',v:d.kpis.pending,c:'#3B82F6'}];
+  var statTotal=d.kpis.total||1;
+  var statusHTML='<div style="margin-bottom:14px">';
+  statusHTML+='<div style="display:flex;justify-content:space-between;margin-bottom:6px">';
+  statData.forEach(function(s){statusHTML+='<span style="font-size:13px;font-weight:700;color:'+s.c+'">'+s.v+'</span>'});
+  statusHTML+='</div>';
+  statusHTML+='<div style="display:flex;height:36px;border-radius:8px;overflow:hidden;gap:2px">';
+  statData.forEach(function(s){var ww=Math.max(s.v/statTotal*100,s.v>0?3:0);statusHTML+='<div style="width:'+ww+'%;background:'+s.c+';transition:width .8s;border-radius:4px"></div>'});
+  statusHTML+='</div>';
+  statusHTML+='<div style="display:flex;justify-content:space-between;margin-top:8px">';
+  statData.forEach(function(s){statusHTML+='<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:'+s.c+'"></div><span style="font-size:10px;color:#64748B">'+s.l+'</span></div>'});
+  statusHTML+='</div></div>';
+  h+=_dpCard('Estado de trackers','\ud83d\udcca',statusHTML);
+
+  // --- DOT GRID MAP (Amelia page 6 style) --- full width
+  var dotHTML='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
+  d.byPv.forEach(function(pv){
+    var pvNum=parseInt(pv.pv.replace('PV',''));
+    var codes=Object.keys(MASTER_DATA).filter(function(c){return MASTER_DATA[c].pv===pvNum}).sort();
+    if(codes.length===0)return;
+    dotHTML+='<div style="margin-bottom:10px"><div style="font-size:10px;color:#64748B;font-weight:600;margin-bottom:3px">'+pv.pv+'</div>';
+    dotHTML+='<div style="display:flex;flex-wrap:wrap;gap:3px">';
+    codes.forEach(function(code){
+      var fc=code.replace(/\./g,'_');
+      var con=CACHE._dpCon&&CACHE._dpCon[fc]||{};
+      var cfg=PCFG[MASTER_DATA[code].type];
+      if(!cfg)return;
+      var totalP=0,hincP=0,rechP=0;
+      for(var f=0;f<(cfg.conducida?2:1);f++){
+        var px=f===0?'fm':'fc';var pils=f===0?cfg.motor:cfg.conducida;
+        for(var i=0;i<pils.length;i++){totalP++;var est=con[px+'_'+i+'_estado']||'';if(est==='hincada')hincP++;else if(est==='rechazo')rechP++}
+      }
+      var dotC=rechP>0?'#EF4444':hincP===totalP&&totalP>0?'#16A34A':hincP>0?'#F59E0B':'#CBD5E1';
+      dotHTML+='<div title="'+code+' ('+hincP+'/'+totalP+')" style="width:10px;height:10px;border-radius:50%;background:'+dotC+';cursor:default"></div>';
+    });
+    dotHTML+='</div></div>';
+  });
+  dotHTML+='<div style="display:flex;gap:12px;margin-top:8px;padding-top:8px;border-top:1px solid #E2E8F0">';
+  [{c:'#16A34A',l:'OK'},{c:'#F59E0B',l:'En curso'},{c:'#EF4444',l:'Rechazo'},{c:'#CBD5E1',l:'Pendiente'}].forEach(function(lg){
+    dotHTML+='<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:50%;background:'+lg.c+'"></div><span style="font-size:9px;color:#64748B">'+lg.l+'</span></div>';
+  });
+  dotHTML+='</div></div>';
+  h+='<div class="dp-full">'+_dpCard('Mapa del parque — Vista de trackers','\ud83d\uddfa\ufe0f',dotHTML)+'</div>';
+
+  // --- TECHNICIANS ---
+  var techHTML2='';
+  var colors2=[{c:'#16A34A',bg:'#DCFCE7'},{c:'#3B82F6',bg:'#DBEAFE'},{c:'#8B5CF6',bg:'#EDE9FE'},{c:'#F59E0B',bg:'#FEF3C7'},{c:'#EF4444',bg:'#FEE2E2'}];
   d.byTech.slice(0,5).forEach(function(t,i){
-    var ci=colors[i%5];
-    var pct=d.kpis.total>0?Math.round(t.pilars/Math.max(1,d.byPv.reduce(function(s,p){return s+p.pilDone},0))*100):0;
-    techHTML+='<div style="margin-bottom:14px">'
+    var ci=colors2[i%5];
+    techHTML2+='<div style="margin-bottom:14px">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
       +'<div style="display:flex;align-items:center;gap:10px">'
       +'<div style="width:30px;height:30px;border-radius:8px;background:'+ci.bg+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:'+ci.c+'">'+t.name.charAt(0)+'</div>'
       +'<div><div style="font-size:12px;font-weight:600">'+t.name+'</div>'
-      +'<div style="font-size:10px;color:#94A3B8">'+t.pilars+' pilares · '+t.issues+' incid.</div></div></div>'
+      +'<div style="font-size:10px;color:#94A3B8">'+t.pilars+' pilares \u00b7 '+t.issues+' incid.</div></div></div>'
       +'<span style="font-size:13px;font-weight:700;color:#059669">'+t.pilars+'</span></div>'
       +'<div style="width:100%;height:7px;border-radius:4px;background:#DCFCE7;overflow:hidden">'
       +'<div style="height:100%;border-radius:4px;background:linear-gradient(90deg,'+ci.c+','+ci.c+'dd);width:'+Math.min(100,t.started>0?Math.round(t.done/t.started*100):0)+'%;transition:width .8s"></div>'
       +'</div></div>';
   });
-  h+=_dpCard('Rendimiento por técnico','👷',techHTML||'<div style="color:#94A3B8;font-size:12px;text-align:center;padding:20px">Sin datos de técnicos</div>');
+  h+=_dpCard('Rendimiento por t\u00e9cnico','\ud83d\udc77',techHTML2||'<div style="color:#94A3B8;font-size:12px;text-align:center;padding:20px">Sin datos</div>');
 
-  // Recent incidents
-  var incHTML='';
+  // --- INCIDENTS ---
+  var incHTML2='';
   d.incidents.slice(0,6).forEach(function(inc,i){
-    incHTML+='<div style="display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:8px;background:'+(i%2===0?'#FAFBFC':'transparent')+'">'
+    incHTML2+='<div style="display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:8px;background:'+(i%2===0?'#FAFBFC':'transparent')+'">'
       +'<div style="width:5px;height:26px;border-radius:3px;background:#EF4444;flex-shrink:0"></div>'
       +'<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">'+inc.tracker
       +' <span style="font-weight:400;color:#94A3B8;margin-left:4px;font-size:10px">'+inc.pv+'</span></div>'
@@ -2106,37 +2367,27 @@ function dpOverview(el,d){
       +'<div style="text-align:right;flex-shrink:0"><div style="font-size:10px;color:#94A3B8">'+inc.tech+'</div>'
       +'<div style="font-size:9px;color:#94A3B8">'+inc.date+'</div></div></div>';
   });
-  if(!incHTML)incHTML='<div style="color:#94A3B8;font-size:12px;text-align:center;padding:20px">Sin incidencias</div>';
-  h+=_dpCard('Incidencias recientes','⚠️',incHTML);
+  if(!incHTML2)incHTML2='<div style="color:#94A3B8;font-size:12px;text-align:center;padding:20px">Sin incidencias</div>';
+  h+=_dpCard('Incidencias recientes','\u26a0\ufe0f',incHTML2);
 
   h+='</div>';
   el.innerHTML=h;
-
-  // Render charts
   setTimeout(function(){
-    // Donut
-    var dCtx=document.getElementById('dp-donut');
-    if(dCtx){
-      var dc=new Chart(dCtx,{type:'doughnut',data:{
-        labels:['Validados','En curso','Incidencias','Pendientes'],
-        datasets:[{data:[d.kpis.completed,d.kpis.inProgress,d.kpis.incidents,d.kpis.pending],
-          backgroundColor:['#16A34A','#3B82F6','#EF4444','#CBD5E1'],borderWidth:0,borderRadius:3}]
-      },options:{cutout:'58%',responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false}}}});
-      _dpCharts.push(dc);
-    }
-    // Daily bars
+    if(typeof Chart==='undefined')return;
+    try{
     var bCtx=document.getElementById('dp-daily');
     if(bCtx){
       var bc=new Chart(bCtx,{type:'bar',data:{
         labels:d.daily.map(function(x){return x.date}),
         datasets:[{data:d.daily.map(function(x){return x.count}),
           backgroundColor:d.daily.map(function(x){return x.count>25?'#16A34A':x.count>15?'#059669':x.count>0?'#94D3AC':'#E2E8F0'}),
-          borderRadius:4,maxBarThickness:16}]
+          borderRadius:4,maxBarThickness:14}]
       },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return ctx.raw+' registros'}}}},
-        scales:{x:{grid:{display:false},ticks:{font:{size:9},color:'#94A3B8',maxRotation:0,autoSkip:true,maxTicksLimit:8}},
-          y:{grid:{color:'#F1F5F9'},ticks:{font:{size:10},color:'#94A3B8'}}}}});
+        scales:{x:{grid:{display:false},ticks:{font:{size:8},color:'#94A3B8',maxRotation:0,autoSkip:true,maxTicksLimit:8}},
+          y:{grid:{color:'#F1F5F9'},ticks:{font:{size:9},color:'#94A3B8'}}}}});
       _dpCharts.push(bc);
     }
+    }catch(chartErr){DBG('Chart render error: '+chartErr.message)}
   },50);
 }
 
