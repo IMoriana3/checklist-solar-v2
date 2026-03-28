@@ -761,7 +761,7 @@ function rConTracker(a){
             else if(dist>5)gpsEl.innerHTML='<div style="padding:8px 12px;border-radius:10px;background:rgba(245,158,11,.15);border:1px solid var(--warn);color:var(--warn);font-size:12px">📍 '+Math.round(dist)+'m</div>';
             else gpsEl.innerHTML='<div style="padding:8px 12px;border-radius:10px;background:rgba(34,197,94,.1);border:1px solid var(--ac);color:var(--ac);font-size:12px">✅ GPS OK — '+dist.toFixed(1)+'m</div>';
           }
-        },{},{enableHighAccuracy:true});
+        },function(){},{enableHighAccuracy:true});
       }
       h+='<div id="gps-check" style="margin-bottom:8px"></div>';
       h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">';
