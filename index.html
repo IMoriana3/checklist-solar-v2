@@ -97,6 +97,7 @@ input,select,textarea,button{font-family:inherit;outline:none}
 .map-popup b{font-size:14px}
 .map-filters{position:absolute;top:10px;right:10px;z-index:1000;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px;max-height:50vh;overflow-y:auto}
 .map-legend{position:absolute;bottom:10px;left:10px;z-index:1000;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px 12px;font-size:11px}
+.pv-label{background:transparent!important;border:none!important;box-shadow:none!important;color:#fff!important;font-weight:700!important;font-size:11px!important}
 .map-legend span{display:inline-flex;align-items:center;gap:4px;margin-right:10px}
 .map-legend .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
 .map-btn{position:absolute;top:10px;left:60px;z-index:1000}
@@ -1122,23 +1123,88 @@ function renderResumen(){
   var el=document.getElementById('res-content');
   if(!pv){el.innerHTML='';return}
   
+  el.innerHTML='<div style="text-align:center;padding:20px;color:var(--td)">Cargando datos...</div>';
+  
   var subs=[...new Set(Object.values(MASTER_DATA).filter(function(d){return d.pv===pv&&d.sub>0}).map(function(d){return d.sub}))].sort(function(a,b){return a-b});
   if(subs.length===0)subs=[0];
   
-  var h='';
-  subs.forEach(function(sub){
-    h+='<div class="card">';
-    h+='<div style="font-weight:700;font-size:16px;margin-bottom:8px">'+(sub?'Subcampo '+sub:'PV'+String(pv).padStart(2,'0'))+'</div>';
+  // Fetch construction + quality data
+  Promise.all([
+    db.ref('construction').once('value'),
+    db.ref('quality').once('value')
+  ]).then(function(results){
+    var conAll=results[0].val()||{};
+    var qualAll=results[1].val()||{};
     
-    WF_PHASES.forEach(function(phase){
-      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)">';
-      h+='<div style="font-size:12px;flex:1">'+WF_LABELS[phase]+'</div>';
-      h+=wfBadge(pv,sub,phase);
+    var h='';
+    subs.forEach(function(sub){
+      var codes=Object.keys(MASTER_DATA).filter(function(code){
+        var d=MASTER_DATA[code];
+        return d.pv===pv&&(sub===0||d.sub===sub);
+      });
+      
+      // Construction stats
+      var conTotal=0,conHinc=0,conRech=0;
+      codes.forEach(function(code){
+        var con=conAll[code]||{};
+        var cfg2=PCFG[MASTER_DATA[code].type];
+        for(var f=0;f<(cfg2.conducida?2:1);f++){
+          var px2=f===0?'fm':'fc';var pils2=f===0?cfg2.motor:cfg2.conducida;
+          for(var i=0;i<pils2.length;i++){
+            conTotal++;
+            var est=con[px2+'_'+i+'_estado']||'';
+            if(est==='hincada')conHinc++;
+            else if(est==='rechazo')conRech++;
+          }
+        }
+      });
+      var conPct=conTotal>0?Math.round(conHinc/conTotal*100):0;
+      
+      // Quality stats
+      var qualStarted=0,qualTotal=codes.length;
+      codes.forEach(function(code){
+        var qd=qualAll[code];
+        if(qd&&Object.keys(qd).length>0)qualStarted++;
+      });
+      var qualPct=qualTotal>0?Math.round(qualStarted/qualTotal*100):0;
+      
+      h+='<div class="card">';
+      h+='<div style="font-weight:700;font-size:16px;margin-bottom:10px">'+(sub?'Subcampo '+sub:'PV'+String(pv).padStart(2,'0'))+' <span style="font-size:12px;color:var(--td)">('+codes.length+' trackers)</span></div>';
+      
+      // Two-column stats
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
+      
+      var conColor=conPct>=100?'var(--ac)':conRech>0?'var(--no)':conHinc>0?'var(--info)':'var(--bd)';
+      h+='<div style="padding:12px;border-radius:10px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2)">';
+      h+='<div style="font-size:11px;color:var(--info);font-weight:600">🏗️ CONSTRUCCIÓN</div>';
+      h+='<div style="font-size:24px;font-weight:700;color:'+conColor+';margin:4px 0">'+conPct+'%</div>';
+      h+='<div class="prog" style="height:5px"><div class="prog-f" style="width:'+conPct+'%;background:'+conColor+'"></div></div>';
+      h+='<div style="font-size:10px;color:var(--td);margin-top:4px">'+conHinc+' hincados'+(conRech>0?' · '+conRech+' rechazos':'')+' / '+conTotal+'</div>';
+      h+='</div>';
+      
+      var qualColor=qualPct>=100?'var(--ac)':qualStarted>0?'var(--info)':'var(--bd)';
+      h+='<div style="padding:12px;border-radius:10px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2)">';
+      h+='<div style="font-size:11px;color:var(--ac);font-weight:600">✅ CALIDAD</div>';
+      h+='<div style="font-size:24px;font-weight:700;color:'+qualColor+';margin:4px 0">'+qualPct+'%</div>';
+      h+='<div class="prog" style="height:5px"><div class="prog-f" style="width:'+qualPct+'%;background:'+qualColor+'"></div></div>';
+      h+='<div style="font-size:10px;color:var(--td);margin-top:4px">'+qualStarted+' inspeccionados / '+qualTotal+' trackers</div>';
+      h+='</div>';
+      
+      h+='</div>';
+      
+      // Workflow badges
+      h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      WF_PHASES.forEach(function(phase){
+        h+='<span style="font-size:10px;color:var(--td)">'+WF_LABELS[phase]+': </span>'+wfBadge(pv,sub,phase)+' ';
+      });
+      h+='</div>';
+      
       h+='</div>';
     });
-    h+='</div>';
+    el.innerHTML=h;
+  }).catch(function(err){
+    el.innerHTML='<div style="padding:20px;text-align:center;color:var(--no)">Error: '+err.message+'</div>';
   });
-  el.innerHTML=h;
 }
 
 // ADMIN
@@ -1221,13 +1287,21 @@ function rMap(a){
   
   var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'modesel\';R()">←</button><div><h1>🗺️ Mapa</h1><div class="sub">Vista satelital del parque</div></div></div>';
   h+='<div style="display:flex;gap:4px;padding:6px 16px;overflow-x:auto">';
-  h+='<button onclick="V.mapPv=0;V.mapSub=0;loadMap()" style="padding:4px 10px;border-radius:6px;font-size:11px;border:1px solid '+(V.mapPv?'var(--bd)':'var(--ac)')+';background:'+(V.mapPv?'transparent':'rgba(62,207,142,.15)')+';color:'+(V.mapPv?'var(--td)':'var(--ac)')+';cursor:pointer">Todo</button>';
+  h+='<button onclick="V.mapPv=0;V.mapSub=0;loadMap()" style="padding:4px 10px;border-radius:6px;font-size:11px;border:1px solid '+(V.mapPv?'var(--bd)':'var(--ac)')+';background:'+(V.mapPv?'transparent':'rgba(62,207,142,.15)')+';color:'+(V.mapPv?'var(--td)':'var(--ac)')+';cursor:pointer;font-weight:600">🌍 Todo</button>';
   pvs.forEach(function(p){
     var sel=V.mapPv===p;
     h+='<button onclick="V.mapPv='+p+';V.mapSub=0;loadMap()" style="padding:4px 10px;border-radius:6px;font-size:11px;border:1px solid '+(sel?'var(--ac)':'var(--bd)')+';background:'+(sel?'rgba(62,207,142,.15)':'transparent')+';color:'+(sel?'var(--ac)':'var(--td)')+';cursor:pointer">PV'+String(p).padStart(2,'0')+'</button>';
   });
   h+='</div>';
   h+='<div id="mapWrap"><div id="mapEl"></div>';
+  // Map nav breadcrumb
+  if(pv){
+    h+='<div style="padding:4px 16px;font-size:12px;color:var(--td)">';
+    h+='<button onclick="V.mapPv=0;V.mapSub=0;loadMap()" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:12px">Todo</button>';
+    h+=' → <span style="color:var(--tx)">PV'+String(pv).padStart(2,'0')+'</span>';
+    if(sub)h+=' → <button onclick="V.mapSub=0;loadMap()" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:12px">Subcampos</button> → <span style="color:var(--tx)">Sub '+sub+'</span>';
+    h+='</div>';
+  }
   h+='<div class="map-legend"><span><div class="dot" style="background:var(--ac)"></div>Hincado OK</span><span><div class="dot" style="background:var(--err)"></div>Rechazo</span><span><div class="dot" style="background:var(--info)"></div>Parcial</span><span><div class="dot" style="background:#555"></div>Sin datos</span></div>';
   h+='</div>';
   
