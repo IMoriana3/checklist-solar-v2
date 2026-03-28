@@ -104,7 +104,14 @@ input,select,textarea,button{font-family:inherit;outline:none}
 </style>
 </head>
 <body>
+<div id="appdbg" style="padding:12px;font-family:monospace;font-size:11px;color:#3ecf8e;background:#0a0a0f;position:fixed;top:0;left:0;right:0;z-index:99999;max-height:40vh;overflow-y:auto;border-bottom:2px solid #333">DEBUG v2.5 cargando...</div>
 <div id="app"></div>
+<script>
+var _dbg=document.getElementById("appdbg");
+function DBG(m){if(_dbg)_dbg.innerHTML+=("<br>"+new Date().toLocaleTimeString()+" "+m);console.log("DBG:",m)}
+DBG("HTML parsed OK");
+window.onerror=function(msg,url,line){DBG("❌ JS ERROR: "+msg+" at line "+line);return false};
+</script>
 <div id="toast" class="toast" style="opacity:0"></div>
 <div id="statusBar" style="position:fixed;bottom:0;left:0;right:0;padding:4px 16px;background:var(--bg);border-top:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--tx3);z-index:50">
   <span><span class="online-dot on conn-dot"></span><span id="connLabel">Conectado</span></span>
@@ -116,6 +123,7 @@ input,select,textarea,button{font-family:inherit;outline:none}
 // ============================================================
 // FIREBASE INIT
 // ============================================================
+DBG('Firebase init...');
 firebase.initializeApp({
   apiKey:"AIzaSyBHKN65MLHScTNN-L5HwfvWqafAkfsFiAU",
   authDomain:"construccionxamai.firebaseapp.com",
@@ -127,6 +135,7 @@ firebase.initializeApp({
 });
 
 var db=firebase.database();
+DBG('Firebase DB ready');
 // Enable disk persistence — data survives app close, no data loss
 try{firebase.database().ref().keepSynced(true)}catch(e){}
 
@@ -147,6 +156,7 @@ db.ref('.info/connected').on('value',function(s){
 });
 firebase.database().goOnline();
 var auth=firebase.auth();
+DBG('Firebase Auth ready');
 
 // ============================================================
 // STATE
@@ -246,9 +256,12 @@ function doRegister(){
 }
 
 // Auth state listener
+DBG('Setting up auth listener...');
 auth.onAuthStateChanged(function(user){
+  DBG('Auth state changed: '+(user?user.email:'NO USER'));
   if(user){
-    document.getElementById('app').innerHTML='<div style="padding:40px;text-align:center;color:#8b8fa3">Cargando perfil de '+user.email+'...</div>';
+    DBG('Loading profile for '+user.uid);
+    document.getElementById('app').innerHTML='<div style="padding:40px;text-align:center;color:#8b8fa3">Cargando perfil...</div>';
     db.ref('users/'+user.uid).once('value').then(function(snap){
       var data=snap.val()||{};
       U={uid:user.uid,email:user.email,name:data.name||user.email,role:data.role||'calidad'};
@@ -256,7 +269,9 @@ auth.onAuthStateChanged(function(user){
       R();
       showToast('Bienvenido, '+U.name,'var(--ac)');
       initListeners();
+    DBG('Profile loaded: '+(data?JSON.stringify(data).substring(0,100):'null'));
     }).catch(function(authErr){
+      DBG('Profile ERROR: '+authErr.message);
       document.getElementById('app').innerHTML='<div style="padding:40px;color:#ef4444"><h2>Error de perfil</h2><p>'+authErr.message+'</p><p style="margin-top:8px;font-size:12px;color:#8b8fa3">Email: '+user.email+'<br>UID: '+user.uid+'</p><button onclick="auth.signOut().then(function(){location.reload()})" style="margin-top:12px;padding:10px 20px;background:#ef4444;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">Cerrar sesión y reintentar</button></div>';
     });
   }else{
@@ -655,7 +670,6 @@ function rConTracker(a){
   a.innerHTML='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'conselect\';R()">←</button><div><h1>🏗️ '+code+'</h1><div class="sub">Cargando...</div></div></div>';
   
   getConData(code,function(con){
-    try{
     var filas=cfg.conducida?['motor','conducida']:['motor'];
     
     var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'conselect\';R()">←</button><div><h1>🏗️ '+code+'</h1><div class="sub">'+m.type+(V.viewOnly?' · Solo lectura':'')+'</div></div></div>';
@@ -792,7 +806,6 @@ function rConTracker(a){
     
     h+='</div>'; // cnt
     a.innerHTML=h;
-    }catch(conErr){a.innerHTML='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'conselect\';R()">←</button><div><h1>Error</h1></div></div><div class="cnt" style="padding:20px;color:var(--no)">'+conErr.message+'<br><pre style="font-size:10px;margin-top:8px;color:var(--td)">'+conErr.stack+'</pre></div>'}
   });
 }
 
@@ -993,7 +1006,6 @@ function rQualTracker(a){
   a.innerHTML='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'calselect\';R()">←</button><div><h1>✅ '+code+'</h1><div class="sub">Cargando...</div></div></div>';
   
   getQualData(code,function(qd){
-    try{
     var filas=cfg.conducida?['motor','conducida']:['motor'];
     var fila=V.qFila;if(!cfg[fila])fila='motor';
     var pils=cfg[fila];
@@ -1356,7 +1368,7 @@ function initMap(){
   loadMap();
 }
 
-function loadMap(){try{
+function loadMap(){
   if(!MAP)return;
   
   // Clear old markers
@@ -1761,6 +1773,7 @@ function generateWeeklyReport(){
 // ROUTER
 // ============================================================
 function R(){
+  DBG('R() screen='+V.screen);
   var a=document.getElementById('app');
   try{
   var routes={
@@ -1802,6 +1815,7 @@ if('serviceWorker' in navigator){
 }
 
 // Start
+DBG('Calling R() first time, screen='+V.screen);
 R();
 </script>
 </body>

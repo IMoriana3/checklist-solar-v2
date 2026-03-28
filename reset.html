@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reset</title>
+<style>body{background:#0f1117;color:#3ecf8e;font-family:monospace;padding:24px;font-size:14px}#log{white-space:pre-wrap}</style>
+</head>
+<body>
+<h2>🧹 Limpiando caché...</h2>
+<div id="log"></div>
+<script>
+var el=document.getElementById('log');
+function log(m){el.textContent+=m+'\n'}
+
+async function reset(){
+  // 1. Unregister ALL service workers
+  if('serviceWorker' in navigator){
+    var regs=await navigator.serviceWorker.getRegistrations();
+    log('Service workers encontrados: '+regs.length);
+    for(var i=0;i<regs.length;i++){
+      await regs[i].unregister();
+      log('  Eliminado: '+regs[i].scope);
+    }
+  }else{log('No hay service workers')}
+  
+  // 2. Clear ALL caches
+  if('caches' in window){
+    var names=await caches.keys();
+    log('Cachés encontradas: '+names.length);
+    for(var i=0;i<names.length;i++){
+      await caches.delete(names[i]);
+      log('  Eliminada: '+names[i]);
+    }
+  }
+  
+  log('\n✅ Todo limpio. Redirigiendo en 3 segundos...');
+  setTimeout(function(){
+    window.location.href='index.html?reset='+Date.now();
+  },3000);
+}
+
+reset();
+</script>
+</body>
+</html>
