@@ -1675,7 +1675,7 @@ function loadDemoToFirebase(){
   codes.forEach(function(code,ci){
     var md=MASTER_DATA[code];var cfg=PCFG[md.type];if(!cfg)return;
     var fc=fbCode(code);
-    var pv=md.pv;var progress=Math.max(0.03,1-(pv/15));
+    var pv=md.pv;var progress=Math.max(0.25,1.05-(pv/18));
     var rand=Math.random();
     var tech=techs[ci%5];
     var dayOffset=Math.floor(Math.random()*200);
@@ -1771,7 +1771,7 @@ function loadDemoToFirebase(){
   var hP=[75,125,175,225,275,300,300,300,275,250,225,200,150,100,50,25];
   var mP=[0,0,0,5,10,16,20,26,31,31,31,31,26,26,20,20,16,16,10,8,5,3];
   var dP=[0,0,0,0,0,0,0,10,15,20,26,31,36,36,36,36,31,31,26,26,20,16,10,8,5,3];
-  for(var sw=0;sw<42;sw++){synPlan['W'+String(sw+1).padStart(2,'0')]={h:hP[sw]||0,m:mP[sw]||0,d:dP[sw]||0,wd:5}}
+  for(var sw=0;sw<68;sw++){synPlan['W'+String(sw+1).padStart(2,'0')]={h:hP[sw]||0,m:mP[sw]||0,d:dP[sw]||0,wd:5}}
   synPlan.W29={h:0,m:0,d:0,wd:0};synPlan.W30={h:0,m:0,d:0,wd:2};synPlan.W41={h:0,m:0,d:0,wd:3};
   synPlan.W12.wd=3;synPlan.W20.wd=4;synPlan.W35.wd=3;
   updates['planning/weeks']=synPlan;
@@ -2757,7 +2757,7 @@ function dpLoadData(){
         var hP=[75,125,175,225,275,300,300,300,275,250,225,200,150,100,50,25,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
         var mP=[0,0,0,5,10,16,20,26,31,31,31,31,26,26,20,20,16,16,10,8,5,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
         var dP=[0,0,0,0,0,0,0,10,15,20,26,31,36,36,36,36,31,31,26,26,20,16,10,8,5,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-        for(var sw=0;sw<42;sw++){synPlan['W'+String(sw+1).padStart(2,'0')]={h:hP[sw]||0,m:mP[sw]||0,d:dP[sw]||0,wd:5}}
+        for(var sw=0;sw<68;sw++){synPlan['W'+String(sw+1).padStart(2,'0')]={h:hP[sw]||0,m:mP[sw]||0,d:dP[sw]||0,wd:5}}
         synPlan.W29.wd=0;synPlan.W30.wd=2;synPlan.W41.wd=3;synPlan.W12.wd=3;synPlan.W20.wd=4;synPlan.W35.wd=3;
         CACHE._dpPlanData=synPlan;
       }
@@ -3134,14 +3134,12 @@ function dpTeam(el,d){
     h+='<div style="margin-bottom:16px">'+_dpCard('Ranking de equipo','🏆',function(){
       var rh='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:separate;border-spacing:0 3px;font-size:12px;min-width:500px">';
       rh+='<thead><tr>';
-      ['#','Técnico','Pilares','Rechazos','Ratio %','Trackers','Eficacia'].forEach(function(hd){
+      ['#','Técnico','Hincas','Rechazos','Ratio %','Trackers','Eficacia'].forEach(function(hd){
         rh+='<th style="text-align:left;padding:6px 8px;font-size:9px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #E2E8F0">'+hd+'</th>';
       });
       rh+='</tr></thead><tbody>';
-      // Sort by ratio (rechazos/pilars) ascending = best first
-      var ranked=d.byTech.slice().sort(function(a,b){
-        var ra=a.pilars>0?a.rechazos/a.pilars:0;var rb=b.pilars>0?b.rechazos/b.pilars:0;return ra-rb;
-      });
+      // Sort by production (most hincas first)
+      var ranked=d.byTech.slice().sort(function(a,b){return b.pilars-a.pilars});
       ranked.forEach(function(t,i){
         var ratio=t.pilars>0?Math.round(t.rechazos/t.pilars*1000)/10:0;
         var effPct=t.started>0?Math.round(t.done/t.started*100):0;
@@ -3538,7 +3536,7 @@ function dpPlan(el,d){
   _dpDestroy();
   if(!window._dpPlanView)window._dpPlanView='chart';
   var pv=window._dpPlanView;
-  var PLAN={startDate:'2025-06-02',endDate:'2026-03-15',totalPilars:0,totalTrackers:d.kpis.total};
+  var PLAN={startDate:'2025-06-02',endDate:'2026-09-15',totalPilars:0,totalTrackers:d.kpis.total};
   Object.keys(MASTER_DATA).forEach(function(code){var cfg=PCFG[MASTER_DATA[code].type];if(!cfg)return;PLAN.totalPilars+=(cfg.conducida?cfg.motor.length+cfg.conducida.length:cfg.motor.length)});
   if(PLAN.totalPilars===0)PLAN.totalPilars=15000;
   var startD=new Date(PLAN.startDate);var endD=new Date(PLAN.endDate);var today=new Date();today.setHours(0,0,0,0);
