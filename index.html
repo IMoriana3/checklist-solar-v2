@@ -1759,6 +1759,7 @@ function generateWeeklyReport(){
 // ============================================================
 function R(){
   var a=document.getElementById('app');
+  try{
   var routes={
     loading:rLoading,
     login:rLogin,
@@ -1776,6 +1777,7 @@ function R(){
   var fn=routes[V.screen];
   if(fn)fn(a);
   else{V.screen='modesel';rModeSel(a)}
+  }catch(rErr){a.innerHTML='<div style="padding:40px;color:#ef4444"><h2>Error</h2><p>'+rErr.message+'</p><pre style="font-size:10px;color:#8b8fa3;margin-top:8px;white-space:pre-wrap">'+rErr.stack+'</pre><button onclick="V.screen=\'modesel\';R()" style="margin-top:12px;padding:10px 20px;background:#3ecf8e;color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer">Reintentar</button></div>'}
 }
 
 // Prevent accidental back navigation
