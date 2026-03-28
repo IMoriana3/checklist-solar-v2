@@ -2344,7 +2344,7 @@ function dpLoadData(){
     db.ref('quality').once('value'),
     db.ref('workflow').once('value'),
     db.ref('punchlist').once('value'),
-    db.ref('construction_log').orderByChild('ts').limitToLast(500).once('value')
+    db.ref('con_log').orderByChild('ts').limitToLast(500).once('value')
   ]).then(function(results){
     var conAll=results[0].val()||{};
     var qualAll=results[1].val()||{};
@@ -2352,6 +2352,7 @@ function dpLoadData(){
     var plAll=results[3].val()||{};
     var logAll=results[4].val()||{};
     CACHE._dpCon=conAll;
+    DBG('DashPro data: con='+Object.keys(conAll).length+' qual='+Object.keys(qualAll).length+' log='+Object.keys(logAll).length);
     var kpis={total:0,completed:0,inProgress:0,incidents:0,pending:0,pct:0};
     var pvMap={};
     var techMap={};
@@ -2430,6 +2431,25 @@ function dpLoadData(){
     var logArr=[];
     Object.keys(logAll).forEach(function(k){var l=logAll[k];if(l&&l.ts)logArr.push(l)});
     logArr.sort(function(a2,b2){return (a2.ts||0)-(b2.ts||0)});
+
+    // If log is empty, build activity data from construction timestamps
+    if(logArr.length===0){
+      DBG('con_log empty — building activity from construction _lastTS');
+      Object.keys(conAll).forEach(function(fc){
+        var con=conAll[fc];if(!con||!con._lastTS)return;
+        logArr.push({tracker:fc.replace(/_/g,'.'),field:'_estado',value:'hincada',by:con._lastBy||'',ts:con._lastTS});
+        // Also scan individual field timestamps
+        Object.keys(con).forEach(function(k){
+          if(k.endsWith('_ts')&&typeof con[k]==='number'){
+            var fieldName=k.replace(/_ts$/,'');
+            logArr.push({tracker:fc.replace(/_/g,'.'),field:fieldName,value:con[fieldName]||'',by:con[fieldName+'_by']||con._lastBy||'',ts:con[k]});
+          }
+        });
+      });
+      logArr.sort(function(a2,b2){return (a2.ts||0)-(b2.ts||0)});
+      DBG('Built '+logArr.length+' synthetic log entries from timestamps');
+    }
+
     logArr.forEach(function(l){
       if(!l.ts)return;
       var dk=new Date(l.ts).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});
@@ -2453,6 +2473,7 @@ function dpLoadData(){
       var iso=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
       calMap[iso]=(calMap[iso]||0)+1;
     });
+    DBG('DashPro: logArr='+logArr.length+' calMap days='+Object.keys(calMap).length+' daily='+Object.keys(dayMap).length);
 
     // Work stats
     var workDays=Object.keys(dayMap).length;
