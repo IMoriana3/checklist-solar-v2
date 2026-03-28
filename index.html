@@ -697,7 +697,7 @@ function rModeSel(a){
   if(isCon()){
     h+='<button class="mode-card" onclick="V.screen=\'conselect\';V.viewOnly=false;R()" style="background:linear-gradient(135deg,#1e3a5f,#2563eb);border-color:#3b82f6">';
     h+='<div style="font-size:28px;margin-bottom:8px">🏗️</div><div>Construcción</div>';
-    h+='<div style="font-size:12px;font-weight:400;opacity:.7;margin-top:4px">Hincado de pilares</div></button>';
+    h+='<div style="font-size:12px;font-weight:400;opacity:.7;margin-top:4px">Hincado</div></button>';
   }else if(isCal()){
     h+='<button class="mode-card" onclick="V.screen=\'conselect\';V.viewOnly=true;R()" style="background:linear-gradient(135deg,#1e3a5f44,#2563eb44);border-color:#3b82f644">';
     h+='<div style="font-size:28px;margin-bottom:8px">🏗️</div><div>Construcción <span style="font-size:11px;opacity:.5">(ver)</span></div>';
@@ -895,7 +895,7 @@ function renderConList(){
       var pvPct=Math.round(pvDone/pvTotal*100);
       sumEl.innerHTML='<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:var(--sf);border:1px solid var(--bd);margin-bottom:8px">'
         +'<div style="flex:1"><div style="font-size:12px;font-weight:600">Avance PV'+String(pv).padStart(2,'0')+(sub?' / Sub'+sub:'')+'</div>'
-        +'<div style="font-size:10px;color:var(--td)">'+pvDone+' hincados / '+pvTotal+' pilares'+(pvRech?' · '+pvRech+' rechazos':'')+'</div></div>'
+        +'<div style="font-size:10px;color:var(--td)">'+pvDone+' hincados / '+pvTotal+' hincas'+(pvRech?' · '+pvRech+' rechazos':'')+'</div></div>'
         +'<span style="font-size:18px;font-weight:700;color:var(--ac)">'+pvPct+'%</span></div>';
     }
   });
@@ -2044,8 +2044,8 @@ function generateWeeklyReport(){
     doc.text('1. RESUMEN GENERAL',14,56);
     doc.setFontSize(11);doc.setFont(undefined,'normal');
     var y=64;
-    doc.text('Pilares registrados total: '+totalPilars,20,y);y+=7;
-    doc.text('Pilares hincados total: '+hincados+' ('+Math.round(hincados/Math.max(totalPilars,1)*100)+'%)',20,y);y+=7;
+    doc.text('Hincas registradas total: '+totalPilars,20,y);y+=7;
+    doc.text('Hincas realizadas total: '+hincados+' ('+Math.round(hincados/Math.max(totalPilars,1)*100)+'%)',20,y);y+=7;
     doc.text('Rechazos total: '+rechazos,20,y);y+=7;
     doc.text('Hincados esta semana: '+weekHincados,20,y);y+=7;
     doc.text('Rechazos esta semana: '+weekRechazos,20,y);y+=12;
@@ -2111,8 +2111,8 @@ function generateWeeklyReport(){
       doc.text('4. PRODUCTIVIDAD',14,y);y+=8;
       doc.setFontSize(10);doc.setFont(undefined,'normal');
       var avgMin=Math.round(totalDur/timerCount/60);
-      doc.text('Pilares con timer: '+timerCount,20,y);y+=6;
-      doc.text('Tiempo medio por pilar: '+avgMin+' minutos',20,y);y+=6;
+      doc.text('Hincas con timer: '+timerCount,20,y);y+=6;
+      doc.text('Tiempo medio por hinca: '+avgMin+' minutos',20,y);y+=6;
       doc.text('Tiempo total registrado: '+Math.round(totalDur/3600)+' horas',20,y);y+=12;
     }
     
@@ -2698,7 +2698,7 @@ function dpOverview(el,d){
       +'<div style="height:100%;border-radius:3px;background:'+color+';width:'+Math.min(pct,100)+'%;transition:width .8s"></div></div></div>';
   }
   h+=kpiBar('Trackers validados',d.kpis.completed,d.kpis.total,trkPct,'#16A34A');
-  h+=kpiBar('Pilares hincados',totalPilDone,totalPilars,pilPct,'#3B82F6');
+  h+=kpiBar('Hincas realizadas',totalPilDone,totalPilars,pilPct,'#3B82F6');
   h+=kpiBar('Incidencias',d.kpis.incidents,d.kpis.total,d.kpis.total>0?Math.round(d.kpis.incidents/d.kpis.total*1000)/10:0,'#EF4444');
   h+='</div>';
 
@@ -2760,7 +2760,7 @@ function dpOverview(el,d){
       +'<div style="font-size:9px;color:#94A3B8;font-weight:600;letter-spacing:.5px;margin-top:6px">'+s.l+'</div></div>';
   });
   counterHTML+='</div>';
-  h+=_dpCard('Contador de pilares','\ud83d\udd29',counterHTML);
+  h+=_dpCard('Contador de hincas','\ud83d\udd29',counterHTML);
 
   // --- TRACKER STATUS BARS (Amelia-style) ---
   var statData=[{l:'Validados',v:d.kpis.completed,c:'#16A34A'},{l:'En curso',v:d.kpis.inProgress,c:'#94A3B8'},{l:'Incidencias',v:d.kpis.incidents,c:'#F97316'},{l:'Pendientes',v:d.kpis.pending,c:'#3B82F6'}];
@@ -2817,7 +2817,7 @@ function dpOverview(el,d){
       +'<div style="display:flex;align-items:center;gap:10px">'
       +'<div style="width:30px;height:30px;border-radius:8px;background:'+ci.bg+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:'+ci.c+'">'+t.name.charAt(0)+'</div>'
       +'<div><div style="font-size:12px;font-weight:600">'+t.name+'</div>'
-      +'<div style="font-size:10px;color:#94A3B8">'+t.pilars+' pilares \u00b7 '+t.issues+' incid.</div></div></div>'
+      +'<div style="font-size:10px;color:#94A3B8">'+t.pilars+' hincas \u00b7 '+t.issues+' incid.</div></div></div>'
       +'<span style="font-size:13px;font-weight:700;color:#059669">'+t.pilars+'</span></div>'
       +'<div style="width:100%;height:7px;border-radius:4px;background:#DCFCE7;overflow:hidden">'
       +'<div style="height:100%;border-radius:4px;background:linear-gradient(90deg,'+ci.c+','+ci.c+'dd);width:'+Math.min(100,t.started>0?Math.round(t.done/t.started*100):0)+'%;transition:width .8s"></div>'
@@ -2879,7 +2879,7 @@ function dpPvs(el,d){
     h+='<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">';
     h+='<div style="display:flex;align-items:center;gap:10px">';
     h+='<span style="font-size:14px;font-weight:700;color:'+barColor+';width:48px">'+pv.pv+'</span>';
-    h+='<span style="font-size:11px;color:#94A3B8">'+pv.done+'/'+pv.total+' trackers · '+pv.pilDone+'/'+pv.pilTotal+' pilares</span></div>';
+    h+='<span style="font-size:11px;color:#94A3B8">'+pv.done+'/'+pv.total+' trackers · '+pv.pilDone+'/'+pv.pilTotal+' hincas</span></div>';
     h+='<div style="display:flex;align-items:center;gap:10px">';
     if(pv.issues>0)h+='<span style="font-size:10px;color:#EF4444;font-weight:600">'+pv.issues+' incid.</span>';
     h+='<span style="font-size:15px;font-weight:700;color:'+barColor+'">'+pilPct+'%</span></div></div>';
@@ -2948,9 +2948,9 @@ function dpTeam(el,d){
       h+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">';
       h+='<div style="width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,'+ci.c+','+ci.g+');display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff">'+t.name.charAt(0)+'</div>';
       h+='<div><div style="font-size:14px;font-weight:700">'+t.name+'</div>';
-      h+='<div style="font-size:10px;color:#94A3B8">'+t.pilars+' pilares · ratio '+ratio+'%</div></div></div>';
+      h+='<div style="font-size:10px;color:#94A3B8">'+t.pilars+' hincas · ratio '+ratio+'%</div></div></div>';
       h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">';
-      [{v:t.pilars,l:'Pilares',c:'#3B82F6',bg:'#DBEAFE'},{v:t.done,l:'Completados',c:'#16A34A',bg:'#DCFCE7'},{v:t.rechazos||0,l:'Rechazos',c:'#EF4444',bg:'#FEE2E2'},{v:t.started,l:'Trackers',c:'#8B5CF6',bg:'#EDE9FE'}].forEach(function(s){
+      [{v:t.pilars,l:'Hincas',c:'#3B82F6',bg:'#DBEAFE'},{v:t.done,l:'Completados',c:'#16A34A',bg:'#DCFCE7'},{v:t.rechazos||0,l:'Rechazos',c:'#EF4444',bg:'#FEE2E2'},{v:t.started,l:'Trackers',c:'#8B5CF6',bg:'#EDE9FE'}].forEach(function(s){
         h+='<div style="background:'+s.bg+';border-radius:6px;padding:6px 4px;text-align:center"><div style="font-size:16px;font-weight:700;color:'+s.c+'">'+s.v+'</div><div style="font-size:8px;color:#94A3B8">'+s.l+'</div></div>';
       });
       h+='</div></div>';
@@ -2978,7 +2978,7 @@ function dpTeam(el,d){
 
   // KPI row
   h+='<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">';
-  [{v:t.pilars,l:'Pilares',c:'#3B82F6'},{v:t.done,l:'Completados',c:'#16A34A'},{v:t.rechazos||0,l:'Rechazos',c:'#EF4444'},{v:t.started,l:'Trackers',c:'#8B5CF6'},{v:effPct+'%',l:'Eficacia',c:effPct>=80?'#16A34A':'#F59E0B'}].forEach(function(s){
+  [{v:t.pilars,l:'Hincas',c:'#3B82F6'},{v:t.done,l:'Completados',c:'#16A34A'},{v:t.rechazos||0,l:'Rechazos',c:'#EF4444'},{v:t.started,l:'Trackers',c:'#8B5CF6'},{v:effPct+'%',l:'Eficacia',c:effPct>=80?'#16A34A':'#F59E0B'}].forEach(function(s){
     h+='<div style="background:#fff;border-radius:10px;padding:10px 6px;text-align:center;border:1px solid #E2E8F0"><div style="font-size:20px;font-weight:700;color:'+s.c+'">'+s.v+'</div><div style="font-size:9px;color:#94A3B8">'+s.l+'</div></div>';
   });
   h+='</div>';
@@ -3062,7 +3062,7 @@ function dpTeam(el,d){
     // Pilares
     var pilRank=allT.slice().sort(function(a,b){return b.pilars-a.pilars});
     var pilPos=pilRank.findIndex(function(x){return x.name===t.name})+1;
-    rankings.push({metric:'Pilares hincados',val:t.pilars,pos:pilPos,total:allT.length,best:pilRank[0].pilars,c:'#3B82F6'});
+    rankings.push({metric:'Hincas realizadas',val:t.pilars,pos:pilPos,total:allT.length,best:pilRank[0].pilars,c:'#3B82F6'});
     // Trackers completados
     var doneRank=allT.slice().sort(function(a,b){return b.done-a.done});
     var donePos=doneRank.findIndex(function(x){return x.name===t.name})+1;
@@ -3388,7 +3388,7 @@ function dpPlan(el,d){
   h+='<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">';
   h+='<div style="flex:1;min-width:130px;background:'+sBg+';border-radius:14px;padding:14px;text-align:center;border:2px solid '+sC2+'"><div style="font-size:28px">'+sI+'</div><div style="font-size:15px;font-weight:700;color:'+sC2+'">'+sT+'</div><div style="font-size:10px;color:#64748B">'+(daysVsPlan<=0?Math.abs(daysVsPlan)+' d\u00edas adelant.':daysVsPlan+' d\u00edas retraso')+'</div></div>';
   h+='<div style="flex:1;min-width:130px;background:#fff;border-radius:14px;padding:14px;border:1px solid #E2E8F0"><div style="font-size:9px;color:#94A3B8">FIN ESTIMADA</div><div style="font-size:17px;font-weight:700;color:'+sC2+'">'+estEnd.toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'})+'</div><div style="font-size:10px;color:#64748B">Contract: '+endD.toLocaleDateString('es-ES',{day:'numeric',month:'short'})+'</div></div>';
-  h+='<div style="flex:1;min-width:130px;background:#fff;border-radius:14px;padding:14px;border:1px solid #E2E8F0"><div style="font-size:9px;color:#94A3B8">RITMO</div><div style="font-size:17px;font-weight:700;color:#3B82F6">'+dailyRate+' <span style="font-size:11px;color:#94A3B8">pil/d</span></div>';
+  h+='<div style="flex:1;min-width:130px;background:#fff;border-radius:14px;padding:14px;border:1px solid #E2E8F0"><div style="font-size:9px;color:#94A3B8">RITMO</div><div style="font-size:17px;font-weight:700;color:#3B82F6">'+dailyRate+' <span style="font-size:11px;color:#94A3B8">hincas/d</span></div>';
   var neededRate=remaining>0?Math.ceil(remaining/Math.max(1,Math.round((endD-today)/(1000*60*60*24)*5/7))):0;
   h+='<div style="font-size:10px;color:#64748B">Necesario: '+neededRate+'</div></div></div>';
   // Progress
