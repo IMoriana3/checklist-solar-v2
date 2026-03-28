@@ -381,13 +381,62 @@ function setConField(code,key,val){
   updates['construction/'+fc+'/'+key]=val;
   updates['construction/'+fc+'/'+key+'_ts']=firebase.database.ServerValue.TIMESTAMP;
   updates['construction/'+fc+'/'+key+'_by']=U.name;
-  db.ref().update(updates).then(function(){
-    showToast('✅ Guardado','var(--ac)');updLastSave();
-  }).catch(function(err){
-    showToast('⚠️ Error: '+err.message+' — reintentando...','var(--no)');
-    setTimeout(function(){db.ref().update(updates)},3000);
-  });
-  db.ref('con_log').push({tracker:code,field:key,value:String(val),by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP});
+  // Update tracker-level metadata
+  updates['construction/'+fc+'/_lastBy']=U.name;
+  updates['construction/'+fc+'/_lastTS']=firebase.database.ServerValue.TIMESTAMP;
+
+  var logEntry={tracker:code,field:key,value:String(val),by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP};
+
+  // Capture GPS coordinates if available
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(function(pos){
+      var lat=pos.coords.latitude;
+      var lng=pos.coords.longitude;
+      var acc=Math.round(pos.coords.accuracy);
+      updates['construction/'+fc+'/'+key+'_lat']=lat;
+      updates['construction/'+fc+'/'+key+'_lng']=lng;
+      updates['construction/'+fc+'/'+key+'_gpsAcc']=acc;
+      updates['construction/'+fc+'/_lastLat']=lat;
+      updates['construction/'+fc+'/_lastLng']=lng;
+      logEntry.lat=lat;logEntry.lng=lng;logEntry.gpsAcc=acc;
+      db.ref().update(updates).then(function(){
+        showToast('✅ Guardado + GPS','var(--ac)');updLastSave();
+      }).catch(function(err){
+        showToast('⚠️ Error: '+err.message,'var(--no)');
+        setTimeout(function(){db.ref().update(updates)},3000);
+      });
+      db.ref('con_log').push(logEntry);
+    },function(){
+      // GPS failed — use cached if available
+      if(_cachedGPS){
+        updates['construction/'+fc+'/'+key+'_lat']=_cachedGPS.lat;
+        updates['construction/'+fc+'/'+key+'_lng']=_cachedGPS.lng;
+        updates['construction/'+fc+'/'+key+'_gpsAcc']=_cachedGPS.acc;
+        logEntry.lat=_cachedGPS.lat;logEntry.lng=_cachedGPS.lng;logEntry.gpsAcc=_cachedGPS.acc;
+      }
+      db.ref().update(updates).then(function(){
+        showToast('✅ Guardado'+(_cachedGPS?' + GPS':''),'var(--ac)');updLastSave();
+      }).catch(function(err){
+        showToast('⚠️ Error: '+err.message,'var(--no)');
+        setTimeout(function(){db.ref().update(updates)},3000);
+      });
+      db.ref('con_log').push(logEntry);
+    },{enableHighAccuracy:true,timeout:5000,maximumAge:30000});
+  }else{
+    // No geolocation API — use cached if available
+    if(_cachedGPS){
+      updates['construction/'+fc+'/'+key+'_lat']=_cachedGPS.lat;
+      updates['construction/'+fc+'/'+key+'_lng']=_cachedGPS.lng;
+      logEntry.lat=_cachedGPS.lat;logEntry.lng=_cachedGPS.lng;
+    }
+    db.ref().update(updates).then(function(){
+      showToast('✅ Guardado','var(--ac)');updLastSave();
+    }).catch(function(err){
+      showToast('⚠️ Error: '+err.message,'var(--no)');
+      setTimeout(function(){db.ref().update(updates)},3000);
+    });
+    db.ref('con_log').push(logEntry);
+  }
 }
 
 function getConData(code,cb){
@@ -412,9 +461,27 @@ function getConData(code,cb){
 // ============================================================
 function setQualField(code,key,val){
   var safe=code.replace(/\./g,'_');
-  db.ref('quality/'+safe+'/'+key).set(val);
-  db.ref('quality_log').push({tracker:code,field:key,value:String(val),by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP});
+  var updates={};
+  updates[key]=val;
+  updates[key+'_ts']=firebase.database.ServerValue.TIMESTAMP;
+  updates[key+'_by']=U.name;
+  if(_cachedGPS){updates[key+'_lat']=_cachedGPS.lat;updates[key+'_lng']=_cachedGPS.lng}
+  db.ref('quality/'+safe).update(updates);
+  var logEntry={tracker:code,field:key,value:String(val),by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP};
+  if(_cachedGPS){logEntry.lat=_cachedGPS.lat;logEntry.lng=_cachedGPS.lng;logEntry.gpsAcc=_cachedGPS.acc}
+  db.ref('quality_log').push(logEntry);
 }
+
+// Cached GPS — updated every 30s to avoid blocking writes
+var _cachedGPS=null;
+function _refreshGPS(){
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(function(pos){
+      _cachedGPS={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)};
+    },function(){},{enableHighAccuracy:true,timeout:5000,maximumAge:30000});
+  }
+}
+_refreshGPS();setInterval(_refreshGPS,30000);
 
 // setQF — debounced wrapper for quality writes
 var _qfTimers={};
@@ -467,12 +534,62 @@ function getMPi(type){return(type==='bifila_largo'||type==='monofila_largo')?4:2
 var MED=[
   {id:'altura',label:'Altura pilar',type:'number',unit:'mm'},
   {id:'dist_ns_tramo',label:'Distancia N-S tramo',type:'number',unit:'mm',isTramo:true},
-  {id:'vert_ns',label:'Verticalidad N-S',type:'number',unit:'º',tol:[88,92]},
+  {id:'vert_ns',label:'Verticalidad N-S',type:'number',unit:'º',tol:[88,102]},
   {id:'vert_eo',label:'Verticalidad E-O',type:'number',unit:'º',tol:[88,92]},
   {id:'torsion',label:'Torsión cabeza',type:'okno',def:'NO'},
   {id:'desv_eo',label:'Desviación E-O',type:'okno',def:'NO'},
   {id:'desv_altura',label:'Desviación altura',type:'okno',def:'NO'}
 ];
+
+// Distancia N-S acumulada nominal desde MP (±30mm tolerancia)
+// Key = pilar index offset from MP (1=1N/1S, 2=2N/2S, etc.)
+var DIST_NS_TOL=30;
+var DIST_NS_NOM={
+  largo:{1:7600,2:14800,3:21800,4:28500},
+  corto:{1:6700,2:13400}
+};
+
+// Nominal inter-pilar distances (tramo) per position and type (from v1 checklist)
+// Tolerance: ±30mm on each tramo
+var TRAMO_NOM={
+  largo:[6710,7010,7210,7610,0,7610,7200,7000,6710],
+  corto:[6715,6710,0,6695,6705]
+};
+var TRAMO_TOL=30;
+
+function getTramoTol(type,piIdx){
+  var isLargo=(type==='monofila_largo'||type==='bifila_largo');
+  var noms=isLargo?TRAMO_NOM.largo:TRAMO_NOM.corto;
+  if(piIdx<0||piIdx>=noms.length||noms[piIdx]===0)return null;
+  var nom=noms[piIdx];
+  return{nom:nom,min:nom-TRAMO_TOL,max:nom+TRAMO_TOL};
+}
+
+// Calculate accumulated distance from MP to pilar pi, using recorded tramo measurements
+function calcAccumDist(qd,px,pi,mpI,type){
+  var isLargo=(type==='monofila_largo'||type==='bifila_largo');
+  var noms=isLargo?DIST_NS_NOM.largo:DIST_NS_NOM.corto;
+  if(pi===mpI)return null;
+  var accum=0;var complete=true;
+  if(pi<mpI){
+    // North side: sum from pi toward MP (pi, pi+1, ..., mpI-1)
+    for(var j=mpI-1;j>=pi;j--){
+      var tv=qd[px+'_'+j+'_dist_ns_tramo'];
+      if(tv!=null)accum+=tv;else complete=false;
+    }
+  }else{
+    // South side: sum from mpI+1 to pi
+    for(var j=mpI+1;j<=pi;j++){
+      var tv=qd[px+'_'+j+'_dist_ns_tramo'];
+      if(tv!=null)accum+=tv;else complete=false;
+    }
+  }
+  var offset=Math.abs(pi-mpI);
+  var nom=noms[offset]||null;
+  if(!nom)return null;
+  var outTol=(complete&&accum>0)?(accum<nom-DIST_NS_TOL||accum>nom+DIST_NS_TOL):false;
+  return{accum:accum,nom:nom,offset:offset,complete:complete,outTol:outTol};
+}
 
 var COMP=[
   {id:'galvanizado',label:'Reparación galvanizado',def:'SI'},
@@ -1090,7 +1207,7 @@ function rQualTracker(a){
       h+='<div style="display:flex;gap:4px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch">';
       pils.forEach(function(p,i){
         var fl2=0,tt2=0,bad2=false;
-        MED.concat(COMP).forEach(function(f){if(f.isTramo&&i===mpI)return;tt2++;var v=qd[px+'_'+i+'_'+f.id];if(v!=null){fl2++;if(f.tol&&typeof v==='number'&&(v<f.tol[0]||v>f.tol[1]))bad2=true;if(f.def!=null&&v!==f.def)bad2=true}});
+        MED.concat(COMP).forEach(function(f){if(f.isTramo&&i===mpI)return;tt2++;var v=qd[px+'_'+i+'_'+f.id];if(v!=null){fl2++;var ft=f.tol;if(f.isTramo){var tt3=getTramoTol(m.type,i);if(tt3)ft=[tt3.min,tt3.max]}if(ft&&typeof v==='number'&&(v<ft[0]||v>ft[1]))bad2=true;if(f.def!=null&&v!==f.def)bad2=true}});
         var bdC=fl2===0?'var(--bd)':bad2?'var(--no)':(fl2<tt2?'var(--warn)':'var(--ac)');
         var cls2=i===pi?'outline:2px solid var(--ac);outline-offset:2px;':'';
         h+='<button onclick="V.qPi='+i+';R()" style="flex-shrink:0;min-width:52px;padding:6px 8px;border-radius:8px;font-size:11px;font-weight:700;text-align:center;border:2px solid '+bdC+';background:transparent;color:var(--tx);cursor:pointer;'+cls2+'">'+p+'<div style="font-size:9px;opacity:.6;margin-top:2px">'+fl2+'/'+tt2+'</div></button>';
@@ -1103,17 +1220,40 @@ function rQualTracker(a){
         if(f.isTramo&&isMPpilar)return;
         var k=px+'_'+pi+'_'+f.id;var v=qd[k];
         if(f.type==='number'){
-          var outTol=f.tol&&v!=null&&(v<f.tol[0]||v>f.tol[1]);
+          // Dynamic tolerance: use getTramoTol for tramo, else f.tol
+          var dynTol=null;var tolLabel='';
+          if(f.isTramo){var tt=getTramoTol(m.type,pi);if(tt){dynTol=[tt.min,tt.max];tolLabel='Nominal: '+tt.nom+' mm (±'+TRAMO_TOL+')'}}
+          else if(f.tol){dynTol=f.tol;tolLabel='Tolerancia: '+f.tol[0]+'° — '+f.tol[1]+'°'}
+          var outTol=dynTol&&v!=null&&(v<dynTol[0]||v>dynTol[1]);
           h+='<div class="card" style="padding:12px;margin-bottom:6px'+(outTol?';border-color:var(--no)':'')+'">';
           h+='<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px">'+f.label+' <span style="font-size:10px;color:var(--td)">('+f.unit+')</span></div>';
           if(outTol)h+='<span class="badge" style="background:rgba(239,68,68,.15);color:var(--no)">⚠️ Fuera tol.</span>';
+          if(dynTol&&v!=null&&!outTol)h+='<span class="badge" style="background:rgba(34,197,94,.15);color:var(--ok)">✅ OK</span>';
           h+='</div>';
           if(viewOnly){
             h+='<div style="margin-top:6px;padding:10px;border-radius:8px;background:var(--bg);font-size:16px;font-weight:600;color:'+(outTol?'var(--no)':'var(--tx)')+'">'+(v!=null?v+' '+f.unit:'—')+'</div>';
           }else{
             h+='<input class="inp" type="number" step="any" value="'+(v!=null?v:'')+'" onchange="setQF(\''+code+'\',\''+k+'\',parseFloat(this.value)||null)" style="margin-top:6px;height:40px;font-size:16px;'+(outTol?'border-color:var(--no);color:var(--no)':'')+'" placeholder="'+f.unit+'">';
           }
-          if(f.tol)h+='<div style="font-size:9px;color:var(--tx3);margin-top:4px">Tolerancia: '+f.tol[0]+'° — '+f.tol[1]+'°</div>';
+          if(tolLabel)h+='<div style="font-size:9px;color:var(--tx3);margin-top:4px">'+tolLabel+'</div>';
+          // Show accumulated distance for tramo fields
+          if(f.isTramo){
+            var ad=calcAccumDist(qd,px,pi,mpI,m.type);
+            if(ad){
+              var adColor=!ad.complete?'var(--td)':ad.outTol?'var(--no)':'var(--ac)';
+              h+='<div style="margin-top:6px;padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid '+(ad.outTol?'var(--no)':'var(--bd)');
+              h+=';display:flex;justify-content:space-between;align-items:center">';
+              h+='<div><div style="font-size:10px;color:var(--td)">Dist. acumulada a MP</div>';
+              h+='<div style="font-size:16px;font-weight:700;color:'+adColor+'">'+(ad.complete&&ad.accum>0?ad.accum.toLocaleString('es-ES')+' mm':'—')+'</div></div>';
+              h+='<div style="text-align:right"><div style="font-size:10px;color:var(--td)">Nominal ±'+DIST_NS_TOL+'</div>';
+              h+='<div style="font-size:14px;font-weight:600;color:var(--td)">'+ad.nom.toLocaleString('es-ES')+' mm</div>';
+              if(ad.complete&&ad.accum>0){
+                var diff=ad.accum-ad.nom;
+                h+='<div style="font-size:10px;font-weight:700;color:'+adColor+'">'+(diff>=0?'+':'')+diff+' mm '+(ad.outTol?'⚠️':'✅')+'</div>';
+              }
+              h+='</div></div>';
+            }
+          }
           h+='</div>';
         }else{
           h+='<div class="card" style="padding:12px;margin-bottom:6px"><div style="font-size:13px;margin-bottom:6px">'+f.label+'</div><div style="display:flex;gap:4px">';
