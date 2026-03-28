@@ -379,6 +379,25 @@ function setQualField(code,key,val){
   db.ref('quality_log').push({tracker:code,field:key,value:String(val),by:U.name,uid:U.uid,ts:firebase.database.ServerValue.TIMESTAMP});
 }
 
+// setQF — debounced wrapper for quality writes
+var _qfTimers={};
+function setQF(code,key,val){
+  if(V.viewOnly){showToast('Solo lectura','var(--warn)');return}
+  var tk=code+'_'+key;
+  if(_qfTimers[tk])clearTimeout(_qfTimers[tk]);
+  _qfTimers[tk]=setTimeout(function(){
+    delete _qfTimers[tk];
+    setQualField(code,key,val);
+    showToast('✅ Guardado','var(--ac)');
+    updLastSave();
+  },300);
+}
+
+function updLastSave(){
+  var el=document.getElementById('lastSave');
+  if(el)el.textContent='Guardado: '+new Date().toLocaleTimeString('es-ES');
+}
+
 function getQualData(code,cb){
   db.ref('quality/'+code).once('value',function(s){cb(s.val()||{})});
 }

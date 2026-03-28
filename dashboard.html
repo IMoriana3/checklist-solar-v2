@@ -69,20 +69,7 @@ function startListeners(){
   if(listenersStarted)return;
   listenersStarted=true;
 
-// Auth — use existing session from main app
-firebase.auth().onAuthStateChanged(function(user){
-  if(user){
-    document.getElementById('st').textContent='Conectado como '+user.email;
-    startListeners();
-  }else{
-    document.getElementById('pcon').innerHTML='<div style="padding:40px;text-align:center"><div style="font-size:32px;margin-bottom:12px">🔒</div><div style="font-size:16px;font-weight:700;margin-bottom:8px">Inicia sesión</div><div style="font-size:13px;color:var(--tx2);margin-bottom:16px">Abre la app principal, inicia sesión y vuelve aquí</div><input id="d-email" placeholder="Email" style="width:260px;padding:10px;border-radius:8px;background:var(--card);border:1px solid var(--bd);color:var(--tx);margin-bottom:6px;display:block;margin-left:auto;margin-right:auto"><input id="d-pass" type="password" placeholder="Contraseña" style="width:260px;padding:10px;border-radius:8px;background:var(--card);border:1px solid var(--bd);color:var(--tx);margin-bottom:10px;display:block;margin-left:auto;margin-right:auto"><button onclick="firebase.auth().signInWithEmailAndPassword(document.getElementById(\'d-email\').value,document.getElementById(\'d-pass\').value).catch(function(e){alert(e.message)})" style="padding:10px 24px;border-radius:8px;background:var(--ac);color:#000;font-weight:700;border:none;cursor:pointer">Entrar</button></div>';
-  }
-});
 
-function startListeners(){
-var WF={CON:{l:'En construcción',c:'#3b82f6',i:'🏗️'},REV:{l:'Pdte revisión',c:'#f5a623',i:'📋'},CAL:{l:'En revisión',c:'#a78bfa',i:'🔍'},OK:{l:'Completado',c:'#3ecf8e',i:'✅'},PUN:{l:'Punchlist',c:'#ef4444',i:'📝'},REP:{l:'En reparación',c:'#f5a623',i:'🔧'},RREV:{l:'Pdte re-revisión',c:'#f5a623',i:'📋'}};
-
-function sw(t,btn){document.getElementById('pcon').style.display=t==='con'?'block':'none';document.getElementById('pcal').style.display=t==='cal'?'block':'none';document.querySelectorAll('.tab').forEach(function(b){b.className='tab'});btn.className='tab on'}
 function rdy(){ld++;if(ld>=3){document.getElementById('st').textContent='En vivo';document.getElementById('st').style.background='rgba(62,207,142,.15)';document.getElementById('st').style.color='#3ecf8e';renderAll()}}
 
   db.ref('construction').on('value',function(s){D.con=s.val()||{};rdy();if(ld>=3)renderAll()},function(e){console.error('construction error:',e);showErr('construction: '+e.message);rdy()});
@@ -100,7 +87,6 @@ function rdy(){ld++;if(ld>=3){document.getElementById('st').textContent='En vivo
     }
   },8000);
 }
-} // end startListeners
 
 function showErr(msg){
   document.getElementById('st').textContent='Error';
@@ -313,7 +299,7 @@ function rCal(){
   
   el.innerHTML=h;
   setTimeout(function(){drw('qchart',qByDay,'34,197,94')},50);
-}catch(calErr){console.error('rCal error:',calErr);document.getElementById('pcal').innerHTML='<div style="padding:40px;text-align:center;color:#ef4444"><div style="font-size:28px;margin-bottom:8px">⚠️</div>Error calidad: '+calErr.message+'</div>'}
+}
 
 function drw(id,bd,rgb){
   var cv=document.getElementById(id);if(!cv)return;cv.width=cv.offsetWidth*2;cv.height=cv.offsetHeight*2;var ctx=cv.getContext('2d');ctx.scale(2,2);
