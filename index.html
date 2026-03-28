@@ -189,7 +189,7 @@ function rLogin(a){
   h+='<div class="login-card">';
   h+='<div class="login-logo">XAMAI · X-ELIO</div>';
   h+='<div class="login-title">ISFV ATALAYA</div>';
-  h+='<div class="login-sub">Checklist Solar v2</div>';
+  h+='<div class="login-sub">Checklist Solar v2.5</div>';
   h+='<input class="inp" id="l-email" type="email" placeholder="Email" style="margin-bottom:8px">';
   h+='<input class="inp" id="l-pass" type="password" placeholder="Contraseña" style="margin-bottom:14px">';
   h+='<button class="btn btn-primary" onclick="doLogin()">Entrar</button>';
@@ -652,6 +652,7 @@ function rConTracker(a){
   a.innerHTML='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'conselect\';R()">←</button><div><h1>🏗️ '+code+'</h1><div class="sub">Cargando...</div></div></div>';
   
   getConData(code,function(con){
+    try{
     var filas=cfg.conducida?['motor','conducida']:['motor'];
     
     var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'conselect\';R()">←</button><div><h1>🏗️ '+code+'</h1><div class="sub">'+m.type+(V.viewOnly?' · Solo lectura':'')+'</div></div></div>';
@@ -788,6 +789,7 @@ function rConTracker(a){
     
     h+='</div>'; // cnt
     a.innerHTML=h;
+    }catch(conErr){a.innerHTML='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'conselect\';R()">←</button><div><h1>Error</h1></div></div><div class="cnt" style="padding:20px;color:var(--no)">'+conErr.message+'<br><pre style="font-size:10px;margin-top:8px;color:var(--td)">'+conErr.stack+'</pre></div>'}
   });
 }
 
@@ -988,6 +990,7 @@ function rQualTracker(a){
   a.innerHTML='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'calselect\';R()">←</button><div><h1>✅ '+code+'</h1><div class="sub">Cargando...</div></div></div>';
   
   getQualData(code,function(qd){
+    try{
     var filas=cfg.conducida?['motor','conducida']:['motor'];
     var fila=V.qFila;if(!cfg[fila])fila='motor';
     var pils=cfg[fila];
@@ -1350,7 +1353,7 @@ function initMap(){
   loadMap();
 }
 
-function loadMap(){
+function loadMap(){try{
   if(!MAP)return;
   
   // Clear old markers
@@ -1782,6 +1785,16 @@ window.addEventListener('popstate',function(e){
   }
 });
 history.pushState(null,null);
+
+// Unregister old service workers to force fresh load
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    regs.forEach(function(r){r.unregister()});
+  });
+  setTimeout(function(){
+    navigator.serviceWorker.register('./sw.js').catch(function(){});
+  },2000);
+}
 
 // Start
 R();

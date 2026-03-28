@@ -187,16 +187,22 @@ async function doImport(){
     var trackers=Object.keys(qualData);
     log('  '+trackers.length+' trackers con datos');
     
-    // Write in batches of 50
-    for(var i=0;i<trackers.length;i+=50){
-      var batch={};
-      for(var j=i;j<Math.min(i+50,trackers.length);j++){
-        batch['quality/'+trackers[j]]=qualData[trackers[j]];
+    // Write one tracker at a time to avoid overwhelming Firebase
+    for(var i=0;i<trackers.length;i++){
+      try{
+        await db.ref('quality/'+trackers[i]).set(qualData[trackers[i]]);
+      }catch(e){
+        log('  ⚠️ Error en '+trackers[i]+': '+e.message+' — reintentando...');
+        await new Promise(function(r){setTimeout(r,1000)});
+        try{await db.ref('quality/'+trackers[i]).set(qualData[trackers[i]])}catch(e2){log('  ❌ Falló '+trackers[i])}
       }
-      await db.ref().update(batch);
-      done+=Math.min(50,trackers.length-i);
-      setProgress(Math.round(done/total*50));
-      log('  '+Math.min(i+50,trackers.length)+'/'+trackers.length+' trackers');
+      done++;
+      if(i%10===0||i===trackers.length-1){
+        setProgress(Math.round(done/(trackers.length+60)*100));
+        log('  '+(i+1)+'/'+trackers.length+' trackers');
+      }
+      // Small pause every 20 to not overwhelm Firebase
+      if(i%20===0)await new Promise(function(r){setTimeout(r,200)});
     }
     log('✅ Historial importado: '+trackers.length+' trackers');
   }
@@ -236,15 +242,16 @@ async function doImport(){
     var conTrackers=Object.keys(conData);
     log('  '+conTrackers.length+' trackers con datos de construcción');
     
-    for(var i=0;i<conTrackers.length;i+=50){
-      var batch={};
-      for(var j=i;j<Math.min(i+50,conTrackers.length);j++){
-        batch['construction/'+conTrackers[j]]=conData[conTrackers[j]];
+    for(var i=0;i<conTrackers.length;i++){
+      try{
+        await db.ref('construction/'+conTrackers[i]).set(conData[conTrackers[i]]);
+      }catch(e){
+        log('  ⚠️ Error en '+conTrackers[i]+': '+e.message);
+        await new Promise(function(r){setTimeout(r,1000)});
+        try{await db.ref('construction/'+conTrackers[i]).set(conData[conTrackers[i]])}catch(e2){}
       }
-      await db.ref().update(batch);
-      done+=Math.min(50,conTrackers.length-i);
-      setProgress(50+Math.round(done/total*50));
-      log('  '+Math.min(i+50,conTrackers.length)+'/'+conTrackers.length+' trackers');
+      if(i%10===0||i===conTrackers.length-1)log('  '+(i+1)+'/'+conTrackers.length+' trackers');
+      if(i%20===0)await new Promise(function(r){setTimeout(r,200)});
     }
     log('✅ Construcción importada: '+conTrackers.length+' trackers');
   }
@@ -270,15 +277,19 @@ async function doImport(){
       count++;
     });
     
-    // Write in chunks
     var logKeys=Object.keys(logBatch);
-    for(var i=0;i<logKeys.length;i+=200){
+    for(var i=0;i<logKeys.length;i+=50){
       var chunk={};
-      for(var j=i;j<Math.min(i+200,logKeys.length);j++){
+      for(var j=i;j<Math.min(i+50,logKeys.length);j++){
         chunk[logKeys[j]]=logBatch[logKeys[j]];
       }
-      await db.ref().update(chunk);
-      log('  '+Math.min(i+200,logKeys.length)+'/'+logKeys.length+' entradas');
+      try{await db.ref().update(chunk)}catch(e){
+        log('  ⚠️ Error log chunk: '+e.message);
+        await new Promise(function(r){setTimeout(r,2000)});
+        try{await db.ref().update(chunk)}catch(e2){}
+      }
+      log('  '+Math.min(i+50,logKeys.length)+'/'+logKeys.length+' entradas');
+      if(i%200===0)await new Promise(function(r){setTimeout(r,500)});
     }
     log('✅ Log importado: '+count+' entradas');
   }
