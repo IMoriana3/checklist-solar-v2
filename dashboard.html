@@ -54,17 +54,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);min-h
 firebase.initializeApp({apiKey:"AIzaSyBHKN65MLHScTNN-L5HwfvWqafAkfsFiAU",authDomain:"construccionxamai.firebaseapp.com",databaseURL:"https://construccionxamai-default-rtdb.europe-west1.firebasedatabase.app",projectId:"construccionxamai",storageBucket:"construccionxamai.firebasestorage.app",messagingSenderId:"71667188901",appId:"1:71667188901:web:663c605a1fbe53a3caf94c"});
 var db=firebase.database(),auth=firebase.auth(),D={con:{},wf:{},pl:{},log:[],qual:{},qlog:[]},ld=0;
 
-// Try to start immediately, auth or not
-document.getElementById('st').textContent='Conectando...';
-
-// If auth available, wait briefly for it; otherwise start anyway
-var authTimeout=setTimeout(function(){startListeners()},2000);
-auth.onAuthStateChanged(function(user){
-  clearTimeout(authTimeout);
-  startListeners();
-});
+document.getElementById('st').textContent='Verificando sesión...';
 
 var listenersStarted=false;
+auth.onAuthStateChanged(function(user){
+  if(user){
+    document.getElementById('st').textContent='Conectando datos...';
+    startListeners();
+  }else{
+    document.getElementById('st').textContent='Login necesario';
+    document.getElementById('st').style.background='rgba(245,158,11,.15)';
+    document.getElementById('st').style.color='#f5a623';
+    document.getElementById('pcon').innerHTML='<div style="padding:40px;text-align:center"><div style="font-size:32px;margin-bottom:12px">🔒</div><div style="font-size:16px;font-weight:700;margin-bottom:16px">Inicia sesión</div><input id="d-email" placeholder="Email" style="width:260px;padding:10px;border-radius:8px;background:#1c1f2a;border:1px solid #2a2d3a;color:#e8eaed;margin-bottom:6px;display:block;margin-left:auto;margin-right:auto;font-family:DM Sans"><input id="d-pass" type="password" placeholder="Contraseña" style="width:260px;padding:10px;border-radius:8px;background:#1c1f2a;border:1px solid #2a2d3a;color:#e8eaed;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto;font-family:DM Sans"><button onclick="auth.signInWithEmailAndPassword(document.getElementById(\'d-email\').value,document.getElementById(\'d-pass\').value).catch(function(e){alert(e.message)})" style="padding:10px 24px;border-radius:8px;background:#3ecf8e;color:#000;font-weight:700;border:none;cursor:pointer;font-family:DM Sans">Entrar</button><div id="d-err" style="color:#ef4444;font-size:12px;margin-top:8px"></div></div>';
+  }
+});
+
 function startListeners(){
   if(listenersStarted)return;
   listenersStarted=true;
