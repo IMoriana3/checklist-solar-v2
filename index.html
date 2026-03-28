@@ -104,7 +104,7 @@ input,select,textarea,button{font-family:inherit;outline:none}
 </style>
 </head>
 <body>
-<div id="appdbg" style="padding:12px;font-family:monospace;font-size:11px;color:#3ecf8e;background:#0a0a0f;position:fixed;bottom:40px;left:0;right:0;z-index:99999;max-height:20vh;overflow-y:auto;border-bottom:2px solid #333">DEBUG v2.8 cargando...</div>
+<div id="appdbg" style="display:none">DEBUG v2.8</div>
 <div id="app"></div>
 <script>
 var _dbg=document.getElementById("appdbg");
@@ -1626,6 +1626,11 @@ function rAdmin(a){
   h+='<button onclick="generateWeeklyReport()" style="display:block;width:100%;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);color:var(--warn);font-size:13px;font-weight:600;cursor:pointer;text-align:center;margin-bottom:6px">📊 Generar informe semanal (PDF)</button>';
   h+='<a href="import.html" target="_blank" style="display:block;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);color:var(--info);font-size:13px;font-weight:600;text-decoration:none;text-align:center;margin-bottom:6px">📥 Importar datos v1</a>';
   h+='<a href="dashboard.html" target="_blank" style="display:block;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);color:var(--ac);font-size:13px;font-weight:600;text-decoration:none;text-align:center">📈 Dashboard</a>';
+  h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">';
+  h+='<div style="font-size:11px;color:var(--td);margin-bottom:6px">Datos de demostración</div>';
+  h+='<button onclick="if(confirm(\'Esto escribirá datos demo en Firebase. ¿Continuar?\'))loadDemoToFirebase()" style="display:block;width:100%;padding:10px;border-radius:8px;background:rgba(62,207,142,.1);border:1px solid var(--ac);color:var(--ac);font-size:13px;font-weight:600;cursor:pointer;text-align:center;margin-bottom:6px">🎭 Cargar datos DEMO</button>';
+  h+='<button onclick="if(confirm(\'Esto BORRARÁ construction, quality, con_log y planning. ¿Seguro?\'))clearDemoFirebase()" style="display:block;width:100%;padding:10px;border-radius:8px;background:rgba(239,68,68,.1);border:1px solid var(--no);color:var(--no);font-size:13px;font-weight:600;cursor:pointer;text-align:center">🗑️ Borrar datos demo</button>';
+  h+='</div>';
   h+='</div></div>';
   a.innerHTML=h;
   loadAdminUsers();
@@ -1656,6 +1661,157 @@ function loadAdminUsers(){
 function chgRole(uid,role){db.ref('users/'+uid+'/role').set(role).then(function(){showToast('Rol: '+role,'var(--ac)');loadAdminUsers()})}
 function delUsr(uid){db.ref('users/'+uid).remove().then(function(){showToast('Eliminado','var(--no)');loadAdminUsers()})}
 
+// ============================================================
+// DEMO DATA → FIREBASE
+// ============================================================
+function loadDemoToFirebase(){
+  showToast('Generando datos demo...','var(--info)');
+  var techs=['Ante Budimir','Aimar Oroz','Kike Barja','Boyomo','Aitor Fern\u00e1ndez'];
+  var conData={};var qualData={};var logData={};var wfData={};
+  var codes=Object.keys(MASTER_DATA);
+  var now=Date.now();var DAY=86400000;
+  var projStart=new Date('2025-06-02').getTime();
+
+  codes.forEach(function(code,ci){
+    var md=MASTER_DATA[code];var cfg=PCFG[md.type];if(!cfg)return;
+    var fc=fbCode(code);
+    var pv=md.pv;var progress=Math.max(0.03,1-(pv/15));
+    var rand=Math.random();
+    var tech=techs[ci%5];
+    var dayOffset=Math.floor(Math.random()*200);
+    var ts=projStart+dayOffset*DAY+Math.floor(Math.random()*8*3600000);
+
+    // Construction data
+    var con={_lastBy:tech,_lastTS:ts};
+    var totalP=0,hincP=0,rechP=0;
+    for(var f=0;f<(cfg.conducida?2:1);f++){
+      var px=f===0?'fm':'fc';var pils=f===0?cfg.motor:cfg.conducida;
+      for(var i=0;i<pils.length;i++){
+        totalP++;
+        if(rand<progress*0.9){
+          if(Math.random()<0.04){
+            con[px+'_'+i+'_estado']='rechazo';rechP++;
+            con[px+'_'+i+'_motivo']=['Roca a 1.2m','Terreno compacto','Desviaci\u00f3n XY','Cota insuficiente','Nivel fre\u00e1tico'][Math.floor(Math.random()*5)];
+          }else{
+            con[px+'_'+i+'_estado']='hincada';hincP++;
+          }
+          con[px+'_'+i+'_tipo']=['directa','directa','directa','predrill','zapata'][Math.floor(Math.random()*5)];
+          con[px+'_'+i+'_equipo']='Equipo '+String(Math.floor(Math.random()*3)+1);
+          con[px+'_'+i+'_estado_ts']=ts+i*120000;
+          con[px+'_'+i+'_estado_by']=tech;
+          // Add log entry
+          logData[fc+'_'+px+'_'+i]={tracker:code,field:px+'_'+i+'_estado',value:con[px+'_'+i+'_estado'],by:tech,ts:ts+i*120000,uid:'demo'};
+        }
+      }
+    }
+    conData[fc]=con;
+
+    // Quality data (only for trackers that are mostly hincados)
+    if(hincP>totalP*0.7&&Math.random()<0.7){
+      var qd={};
+      for(var f2=0;f2<(cfg.conducida?2:1);f2++){
+        var px2=f2===0?'fm':'fc';var pils2=f2===0?cfg.motor:cfg.conducida;
+        var mpI2=getMPi(md.type);
+        for(var i2=0;i2<pils2.length;i2++){
+          // Altura
+          qd[px2+'_'+i2+'_altura']=Math.floor(1200+Math.random()*120);
+          // Verticalidad
+          qd[px2+'_'+i2+'_vert_ns']=Math.round((88.5+Math.random()*3.5)*100)/100;
+          qd[px2+'_'+i2+'_vert_eo']=Math.round((88.5+Math.random()*3)*100)/100;
+          // SI/NO fields
+          qd[px2+'_'+i2+'_torsion']=Math.random()<0.95?'NO':'SI';
+          qd[px2+'_'+i2+'_desv_eo']=Math.random()<0.95?'NO':'SI';
+          qd[px2+'_'+i2+'_desv_altura']=Math.random()<0.95?'NO':'SI';
+          // Distancia N-S tramo (not for MP)
+          if(i2!==mpI2){
+            var isLargo2=(md.type==='monofila_largo'||md.type==='bifila_largo');
+            var nomTramo=isLargo2?[6710,7010,7210,7610,0,7610,7200,7000,6710]:[6715,6710,0,6695,6705];
+            if(nomTramo[i2])qd[px2+'_'+i2+'_dist_ns_tramo']=nomTramo[i2]+Math.floor(Math.random()*40-20);
+          }
+          // Comprobaciones
+          qd[px2+'_'+i2+'_galvanizado']='SI';
+          qd[px2+'_'+i2+'_golpes']=Math.random()<0.97?'NO':'SI';
+          qd[px2+'_'+i2+'_entalladura']='NO';
+          qd[px2+'_'+i2+'_pliegue']='NO';
+          qd[px2+'_'+i2+'_cabezas']='NO';
+          qd[px2+'_'+i2+'_corte']='NO';
+          qd[px2+'_'+i2+'_mecanizados']='NO';
+          qd[px2+'_'+i2+'_orientacion']='SI';
+          qd[px2+'_'+i2+'_perfil']='SI';
+          qd[px2+'_'+i2+'_relleno']='NO';
+          qd[px2+'_'+i2+'_oxidacion']=Math.random()<0.97?'NO':'SI';
+          qd[px2+'_'+i2+'_socavones']='NO';
+          qd[px2+'_'+i2+'_cimentacion']='SI';
+          qd[px2+'_'+i2+'_zanjas']='NO';
+          qd[px2+'_'+i2+'_centrado']='NA';
+          qd[px2+'_'+i2+'_diametro']='NA';
+        }
+      }
+      qualData[fc]=qd;
+    }
+
+    // Workflow
+    var allDone=hincP===totalP&&totalP>0;
+    var sub=md.sub||0;
+    var wfKey=pv+'_'+sub+'_hincado';
+    if(!wfData[wfKey]){
+      var wfSt=allDone?'OK':(hincP>0?'CON':'CON');
+      wfData[wfKey]={state:wfSt,since:ts,by:tech,trigger:'demo'};
+    }
+  });
+
+  // Write to Firebase in batches
+  var updates={};
+  Object.keys(conData).forEach(function(k){updates['construction/'+k]=conData[k]});
+  Object.keys(qualData).forEach(function(k){updates['quality/'+k]=qualData[k]});
+  Object.keys(wfData).forEach(function(k){updates['workflow/'+k]=wfData[k]});
+
+  // Write planning
+  var synPlan={};
+  var hP=[75,125,175,225,275,300,300,300,275,250,225,200,150,100,50,25];
+  var mP=[0,0,0,5,10,16,20,26,31,31,31,31,26,26,20,20,16,16,10,8,5,3];
+  var dP=[0,0,0,0,0,0,0,10,15,20,26,31,36,36,36,36,31,31,26,26,20,16,10,8,5,3];
+  for(var sw=0;sw<42;sw++){synPlan['W'+String(sw+1).padStart(2,'0')]={h:hP[sw]||0,m:mP[sw]||0,d:dP[sw]||0,wd:5}}
+  synPlan.W29={h:0,m:0,d:0,wd:0};synPlan.W30={h:0,m:0,d:0,wd:2};synPlan.W41={h:0,m:0,d:0,wd:3};
+  synPlan.W12.wd=3;synPlan.W20.wd=4;synPlan.W35.wd=3;
+  updates['planning/weeks']=synPlan;
+
+  DBG('Writing demo: '+Object.keys(conData).length+' con, '+Object.keys(qualData).length+' qual, '+Object.keys(logData).length+' logs');
+
+  db.ref().update(updates).then(function(){
+    // Write logs separately (push)
+    var logRef=db.ref('con_log');
+    var logKeys=Object.keys(logData);
+    var batch=0;
+    function writeBatch(){
+      var chunk=logKeys.slice(batch,batch+50);
+      if(chunk.length===0){
+        showToast('\u2705 Demo cargada — '+Object.keys(conData).length+' trackers','var(--ac)');
+        CACHE._dpPlanData=synPlan;
+        CACHE._dpPlanLoading=false;
+        return;
+      }
+      var logUpdates={};
+      chunk.forEach(function(k){logUpdates[k]=logData[k]});
+      logRef.update(logUpdates).then(function(){batch+=50;writeBatch()});
+    }
+    writeBatch();
+  }).catch(function(err){
+    showToast('\u274c Error: '+err.message,'var(--no)');
+    DBG('Demo write error: '+err.message);
+  });
+}
+
+function clearDemoFirebase(){
+  showToast('Borrando datos...','var(--warn)');
+  var updates={construction:null,quality:null,con_log:null,workflow:null,punchlist:null,planning:null};
+  db.ref().update(updates).then(function(){
+    showToast('\u2705 Datos borrados','var(--ac)');
+    CACHE={};
+  }).catch(function(err){
+    showToast('\u274c Error: '+err.message,'var(--no)');
+  });
+}
 
 // LOADING
 function rLoading(a){
@@ -2218,6 +2374,7 @@ var _dpTab='overview';
 
 function dpTab(t){
   _dpTab=t;
+  window._dpFilter=null;
   if(t!=='team'){window._dpSelTech=null;window._dpTeamView='trackers'}
   document.querySelectorAll('.dp-tab').forEach(function(b){
     var active=b.dataset.tab===t;
@@ -2590,26 +2747,21 @@ function dpLoadData(){
 
     _dpData={kpis:kpis,byPv:byPv,byTech:byTech,daily:daily,incidents:incidents,qualIncidents:qualIncidents,calMap:calMap,workDays:workDays,dailyAvg:dailyAvg,totalLogs:totalLogs,recentLogs:recentLogs};
 
-    // FORCE DEMO DATA — remove this line to use real Firebase data
-    if(true){
-      DBG('No data from Firebase — loading DEMO');
+    // Only load synthetic demo if Firebase has NO data
+    if(kpis.total===0){
+      DBG('Firebase empty — loading synthetic DEMO');
       _dpData=_dpDemoData();
       CACHE._dpCon=_dpData._demoCon||{};
-      // Generate synthetic weekly plan — realistic phased construction
-      // ~15,000 pilars, ~1,756 trackers, project June 2025 → March 2026 (42 weeks)
-      // Hincado: weeks 1-16, ramp up peak 120/day, then taper
-      // Montaje: starts week 4 (tracker can't mount until hincado OK), peaks 12/day
-      // Módulos: starts week 8 (can't mount until tracker OK), peaks 15/day
-      var synPlan={};
-      var hP=[75,125,175,225,275,300,300,300,275,250,225,200,150,100,50,25,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-      var mP=[0,0,0,5,10,16,20,26,31,31,31,31,26,26,20,20,16,16,10,8,5,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-      var dP=[0,0,0,0,0,0,0,10,15,20,26,31,36,36,36,36,31,31,26,26,20,16,10,8,5,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-      for(var sw=0;sw<42;sw++){synPlan['W'+String(sw+1).padStart(2,'0')]={h:hP[sw]||0,m:mP[sw]||0,d:dP[sw]||0,wd:5}}
-      synPlan.W29.wd=0;synPlan.W30.wd=2;// Navidad
-      synPlan.W41.wd=3;// Semana Santa
-      synPlan.W12.wd=3;synPlan.W20.wd=4;synPlan.W35.wd=3;// Lluvia
-      CACHE._dpPlanData=synPlan;
-      document.getElementById('dp-meta').innerHTML='<span style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">DEMO</span> '+new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+      if(!CACHE._dpPlanData||Object.keys(CACHE._dpPlanData).length===0){
+        var synPlan={};
+        var hP=[75,125,175,225,275,300,300,300,275,250,225,200,150,100,50,25,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+        var mP=[0,0,0,5,10,16,20,26,31,31,31,31,26,26,20,20,16,16,10,8,5,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+        var dP=[0,0,0,0,0,0,0,10,15,20,26,31,36,36,36,36,31,31,26,26,20,16,10,8,5,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+        for(var sw=0;sw<42;sw++){synPlan['W'+String(sw+1).padStart(2,'0')]={h:hP[sw]||0,m:mP[sw]||0,d:dP[sw]||0,wd:5}}
+        synPlan.W29.wd=0;synPlan.W30.wd=2;synPlan.W41.wd=3;synPlan.W12.wd=3;synPlan.W20.wd=4;synPlan.W35.wd=3;
+        CACHE._dpPlanData=synPlan;
+      }
+      document.getElementById('dp-meta').innerHTML='<span style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">SIN DATOS</span> '+new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
     }else{
       document.getElementById('dp-meta').innerHTML='Actualizado '+new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
     }
@@ -2633,8 +2785,8 @@ function dpRenderKPIs(){
   var k=_dpData.kpis;
   var CC={green:'#16A34A',greenS:'#DCFCE7',blue:'#3B82F6',blueS:'#DBEAFE',amber:'#F59E0B',amberS:'#FEF3C7',ts:'#64748B'};
 
-  function kpiCard(icon,label,val,sub,color,bg){
-    return '<div style="background:#fff;border-radius:14px;padding:18px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid #E2E8F0;display:flex;align-items:center;gap:14px">'
+  function kpiCard(icon,label,val,sub,color,bg,filter){
+    return '<div onclick="window._dpFilter=\''+filter+'\';dpRender()" style="background:#fff;border-radius:14px;padding:18px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid '+(window._dpFilter===filter?color:'#E2E8F0')+';display:flex;align-items:center;gap:14px;cursor:pointer;transition:border-color .2s">'
       +'<div style="width:44px;height:44px;border-radius:11px;background:'+bg+';display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">'+icon+'</div>'
       +'<div><div style="font-size:26px;font-weight:700;color:'+color+';line-height:1.1">'+val.toLocaleString('es-ES')+'</div>'
       +'<div style="font-size:11px;color:'+CC.ts+';font-weight:500;margin-top:2px">'+label+'</div>'
@@ -2643,10 +2795,10 @@ function dpRenderKPIs(){
   }
 
   document.getElementById('dp-kpis').innerHTML=
-    kpiCard('✅','Validados',k.completed,k.pct+'% del total',CC.green,CC.greenS)
-    +kpiCard('🔄','En curso',k.inProgress,'de '+k.total+' trackers',CC.blue,CC.blueS)
-    +kpiCard('⚠️','Incidencias',k.incidents,'',CC.amber,CC.amberS)
-    +kpiCard('⏳','Pendientes',k.pending,'',CC.ts,'#F1F5F9');
+    kpiCard('\u2705','Validados',k.completed,k.pct+'% del total',CC.green,CC.greenS,'completed')
+    +kpiCard('\ud83d\udd04','En curso',k.inProgress,'de '+k.total+' trackers',CC.blue,CC.blueS,'inprogress')
+    +kpiCard('\u26a0\ufe0f','Incidencias',k.incidents,'',CC.amber,CC.amberS,'incidents')
+    +kpiCard('\u23f3','Pendientes',k.pending,'',CC.ts,'#F1F5F9','pending');
 }
 
 function dpRender(){
@@ -2655,11 +2807,80 @@ function dpRender(){
   var el=document.getElementById('dp-content');
   var d=_dpData;
 
+  // If a filter is active, show filtered tracker list
+  if(window._dpFilter){
+    dpFilteredList(el,d,window._dpFilter);
+    return;
+  }
+
   if(_dpTab==='overview')dpOverview(el,d);
   else if(_dpTab==='pvs')dpPvs(el,d);
   else if(_dpTab==='team')dpTeam(el,d);
   else if(_dpTab==='incidents')dpIncidents(el,d);
   else if(_dpTab==='plan')dpPlan(el,d);
+}
+
+function dpFilteredList(el,d,filter){
+  var labels={completed:'\u2705 Trackers validados',inprogress:'\ud83d\udd04 Trackers en curso',incidents:'\u26a0\ufe0f Trackers con incidencias',pending:'\u23f3 Trackers pendientes'};
+  var colors={completed:'#16A34A',inprogress:'#3B82F6',incidents:'#F59E0B',pending:'#64748B'};
+
+  // Build tracker list from _dpData.byPv
+  var allTrackers=[];
+  var conAll=CACHE._dpCon||{};
+  Object.keys(MASTER_DATA).forEach(function(code){
+    var md=MASTER_DATA[code];var cfg=PCFG[md.type];if(!cfg)return;
+    var fc=fbCode(code);var con=conAll[fc]||{};
+    var pv='PV'+String(md.pv).padStart(2,'0');
+    var totalP=0,hincP=0,rechP=0;
+    for(var f=0;f<(cfg.conducida?2:1);f++){
+      var px=f===0?'fm':'fc';var pils=f===0?cfg.motor:cfg.conducida;
+      for(var i=0;i<pils.length;i++){totalP++;var est=con[px+'_'+i+'_estado']||'';if(est==='hincada')hincP++;else if(est==='rechazo')rechP++}
+    }
+    var allDone=totalP>0&&hincP===totalP;
+    var hasIssue=rechP>0;
+    var started=hincP>0||rechP>0;
+    var status=allDone?'completed':hasIssue?'incidents':started?'inprogress':'pending';
+    allTrackers.push({code:code,pv:pv,sub:md.sub||0,type:md.type,totalP:totalP,hincP:hincP,rechP:rechP,status:status,tech:con._lastBy||''});
+  });
+
+  var filtered=allTrackers.filter(function(t){
+    if(filter==='incidents')return t.rechP>0;
+    return t.status===filter;
+  });
+
+  var h='<div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">';
+  h+='<div style="display:flex;align-items:center;gap:8px"><span style="font-size:18px;font-weight:700;color:'+colors[filter]+'">'+labels[filter]+'</span>';
+  h+='<span style="background:'+colors[filter]+'18;color:'+colors[filter]+';font-size:12px;font-weight:700;padding:2px 10px;border-radius:12px">'+filtered.length+'</span></div>';
+  h+='<button onclick="window._dpFilter=null;dpRenderKPIs();dpRender()" style="padding:6px 14px;border-radius:8px;background:#fff;border:1px solid #E2E8F0;font-size:12px;color:#64748B;cursor:pointer;font-family:inherit">\u2715 Cerrar</button>';
+  h+='</div>';
+
+  // Group by PV
+  var byPv={};
+  filtered.forEach(function(t){if(!byPv[t.pv])byPv[t.pv]=[];byPv[t.pv].push(t)});
+
+  if(filtered.length===0){
+    h+='<div style="text-align:center;padding:40px;color:#94A3B8">Sin trackers en esta categor\u00eda</div>';
+  }else{
+    Object.keys(byPv).sort().forEach(function(pvName){
+      var items=byPv[pvName];
+      h+='<div style="margin-bottom:12px">';
+      h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="background:#DBEAFE;color:#3B82F6;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">'+pvName+'</span><span style="font-size:10px;color:#94A3B8">'+items.length+' trackers</span></div>';
+      items.forEach(function(t){
+        var pct=t.totalP>0?Math.round(t.hincP/t.totalP*100):0;
+        var barC=t.status==='completed'?'#16A34A':t.rechP>0?'#EF4444':t.hincP>0?'#3B82F6':'#CBD5E1';
+        h+='<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:#fff;border:1px solid #E2E8F0;margin-bottom:4px">';
+        h+='<span style="font-weight:700;font-size:12px;color:#1E293B;width:64px">'+t.code+'</span>';
+        h+='<div style="flex:1;height:6px;border-radius:3px;background:#F1F5F9;overflow:hidden"><div style="height:100%;border-radius:3px;background:'+barC+';width:'+pct+'%"></div></div>';
+        h+='<span style="font-size:10px;font-weight:600;color:'+barC+';width:40px;text-align:right">'+t.hincP+'/'+t.totalP+'</span>';
+        if(t.rechP>0)h+='<span style="font-size:10px;color:#EF4444;font-weight:700">'+t.rechP+'\u26a0</span>';
+        if(t.tech)h+='<span style="font-size:9px;color:#94A3B8;width:60px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+t.tech+'</span>';
+        h+='</div>';
+      });
+      h+='</div>';
+    });
+  }
+
+  el.innerHTML=h;
 }
 
 function _dpCard(title,icon,content){
@@ -2810,8 +3031,10 @@ function dpOverview(el,d){
   // --- TECHNICIANS ---
   var techHTML2='';
   var colors2=[{c:'#16A34A',bg:'#DCFCE7'},{c:'#3B82F6',bg:'#DBEAFE'},{c:'#8B5CF6',bg:'#EDE9FE'},{c:'#F59E0B',bg:'#FEF3C7'},{c:'#EF4444',bg:'#FEE2E2'}];
+  var maxPilTech=Math.max.apply(null,d.byTech.map(function(t){return t.pilars}))||1;
   d.byTech.slice(0,5).forEach(function(t,i){
     var ci=colors2[i%5];
+    var barPct=Math.round(t.pilars/maxPilTech*100);
     techHTML2+='<div style="margin-bottom:14px">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
       +'<div style="display:flex;align-items:center;gap:10px">'
@@ -2820,7 +3043,7 @@ function dpOverview(el,d){
       +'<div style="font-size:10px;color:#94A3B8">'+t.pilars+' hincas \u00b7 '+t.issues+' incid.</div></div></div>'
       +'<span style="font-size:13px;font-weight:700;color:#059669">'+t.pilars+'</span></div>'
       +'<div style="width:100%;height:7px;border-radius:4px;background:#DCFCE7;overflow:hidden">'
-      +'<div style="height:100%;border-radius:4px;background:linear-gradient(90deg,'+ci.c+','+ci.c+'dd);width:'+Math.min(100,t.started>0?Math.round(t.done/t.started*100):0)+'%;transition:width .8s"></div>'
+      +'<div style="height:100%;border-radius:4px;background:linear-gradient(90deg,'+ci.c+','+ci.c+'dd);width:'+barPct+'%;transition:width .8s"></div>'
       +'</div></div>';
   });
   h+=_dpCard('Rendimiento por t\u00e9cnico','\ud83d\udc77',techHTML2||'<div style="color:#94A3B8;font-size:12px;text-align:center;padding:20px">Sin datos</div>');
