@@ -2181,8 +2181,8 @@ function rDashPro(a){
 
   // TABS
   h+='<div style="display:flex;gap:4px;margin-top:12px">';
-  ['overview','pvs','team','incidents'].forEach(function(tid,i){
-    var labels=['📊 Resumen','⚡ Por PV','👷 Equipo','⚠️ Incidencias'];
+  ['overview','pvs','team','incidents','plan'].forEach(function(tid,i){
+    var labels=['📊 Resumen','⚡ Por PV','👷 Equipo','⚠️ Incidencias','📈 Curva S'];
     h+='<button class="dp-tab" data-tab="'+tid+'" onclick="dpTab(\''+tid+'\')" style="background:'+(i===0?'rgba(255,255,255,.2)':'transparent')+';border:none;color:#fff;padding:7px 12px;border-radius:8px;font-size:11px;font-weight:'+(i===0?'700':'500')+';cursor:pointer;opacity:'+(i===0?'1':'.75')+';font-family:inherit;transition:all .2s">'+labels[i]+'</button>';
   });
   h+='</div></div></div>';
@@ -2232,7 +2232,7 @@ function dpLoadData(){
   // --- DEMO DATA GENERATOR ---
   if(!window._dpDemoData){
     window._dpDemoData=function(){
-      var techs=['Ante Budimir','Aimar Oroz','Jon Moncayola','Lucas Torr\u00f3','Rub\u00e9n Garc\u00eda'];
+      var techs=['Ante Budimir','Aimar Oroz','Kike Barja','Boyomo','Aitor Fern\u00e1ndez'];
       var pvCounts=[122,130,128,126,134,120,132,118,124,130,126,128,120,118];
       var byPv=[];var demoCon={};
       var totalDone=0,totalCurso=0,totalInc=0,totalPend=0,totalPilT=0,totalPilD=0;
@@ -2303,12 +2303,18 @@ function dpLoadData(){
         var iso2=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
         calMap2[iso2]=cnt2;
       }
-      // Fill heatmap for last 6 months
-      for(var dd2=180;dd2>30;dd2--){
+      // Fill heatmap from project start (June 2025) with realistic ramp-up
+      var projStart=new Date('2025-06-02');
+      var daysSinceStart=Math.round((now2-projStart)/(1000*60*60*24));
+      for(var dd2=daysSinceStart;dd2>30;dd2--){
         var dt2=new Date(now2);dt2.setDate(dt2.getDate()-dd2);
+        if(dt2<projStart)continue;
         var isWknd2=dt2.getDay()===0||dt2.getDay()===6;
         var iso3=dt2.getFullYear()+'-'+String(dt2.getMonth()+1).padStart(2,'0')+'-'+String(dt2.getDate()).padStart(2,'0');
-        calMap2[iso3]=isWknd2?0:Math.floor(Math.random()*35+5);
+        // Ramp up: fewer at start, more later
+        var dayProgress=(daysSinceStart-dd2)/daysSinceStart; // 0→1
+        var baseRate=Math.floor(10+dayProgress*30);
+        calMap2[iso3]=isWknd2?0:Math.floor(Math.random()*baseRate+5);
       }
 
       var wkDays=daily.filter(function(x){return x.count>0}).length;
@@ -2316,16 +2322,16 @@ function dpLoadData(){
 
       // Incidents
       var incidentList=[
-        {tracker:'TR07.234',pv:'PV07',field:'Verticalidad pilar 3 fuera de tolerancia',tech:'Rub\u00e9n Garc\u00eda',date:'28/03'},
+        {tracker:'TR07.234',pv:'PV07',field:'Verticalidad pilar 3 fuera de tolerancia',tech:'Aitor Fern\u00e1ndez',date:'28/03'},
         {tracker:'TR10.312',pv:'PV10',field:'Altura hinca pilar 1 insuficiente (-0.15m)',tech:'Aimar Oroz',date:'28/03'},
-        {tracker:'TR09.288',pv:'PV09',field:'Rechazo pilar 5 — roca a 1.2m',tech:'Jon Moncayola',date:'27/03'},
-        {tracker:'TR10.305',pv:'PV10',field:'Nivelaci\u00f3n N-S pilar 4 > 2\u00b0',tech:'Rub\u00e9n Garc\u00eda',date:'27/03'},
-        {tracker:'TR06.248',pv:'PV06',field:'Predrill necesario — terreno compacto',tech:'Lucas Torr\u00f3',date:'26/03'},
+        {tracker:'TR09.288',pv:'PV09',field:'Rechazo pilar 5 — roca a 1.2m',tech:'Kike Barja',date:'27/03'},
+        {tracker:'TR10.305',pv:'PV10',field:'Nivelaci\u00f3n N-S pilar 4 > 2\u00b0',tech:'Aitor Fern\u00e1ndez',date:'27/03'},
+        {tracker:'TR06.248',pv:'PV06',field:'Predrill necesario — terreno compacto',tech:'Boyomo',date:'26/03'},
         {tracker:'TR12.345',pv:'PV12',field:'Rechazo pilar 7 — desviaci\u00f3n XY > 5cm',tech:'Ante Budimir',date:'26/03'},
         {tracker:'TR13.318',pv:'PV13',field:'Cota hinca pilar 2 fuera de rango',tech:'Aimar Oroz',date:'25/03'},
-        {tracker:'TR11.290',pv:'PV11',field:'Pilar 3 rotaci\u00f3n > 3\u00b0',tech:'Jon Moncayola',date:'25/03'},
-        {tracker:'TR14.335',pv:'PV14',field:'Altura pilar 6 rechazo — rehincado requerido',tech:'Rub\u00e9n Garc\u00eda',date:'24/03'},
-        {tracker:'TR05.240',pv:'PV05',field:'Pilar motor inclinaci\u00f3n E/O > 1.5\u00b0',tech:'Lucas Torr\u00f3',date:'24/03'}
+        {tracker:'TR11.290',pv:'PV11',field:'Pilar 3 rotaci\u00f3n > 3\u00b0',tech:'Kike Barja',date:'25/03'},
+        {tracker:'TR14.335',pv:'PV14',field:'Altura pilar 6 rechazo — rehincado requerido',tech:'Aitor Fern\u00e1ndez',date:'24/03'},
+        {tracker:'TR05.240',pv:'PV05',field:'Pilar motor inclinaci\u00f3n E/O > 1.5\u00b0',tech:'Boyomo',date:'24/03'}
       ];
 
       var demoQualInc=[
@@ -2589,6 +2595,20 @@ function dpLoadData(){
       DBG('No data from Firebase — loading DEMO');
       _dpData=_dpDemoData();
       CACHE._dpCon=_dpData._demoCon||{};
+      // Generate synthetic weekly plan — realistic phased construction
+      // ~15,000 pilars, ~1,756 trackers, project June 2025 → March 2026 (42 weeks)
+      // Hincado: weeks 1-16, ramp up peak 120/day, then taper
+      // Montaje: starts week 4 (tracker can't mount until hincado OK), peaks 12/day
+      // Módulos: starts week 8 (can't mount until tracker OK), peaks 15/day
+      var synPlan={};
+      var hP=[75,125,175,225,275,300,300,300,275,250,225,200,150,100,50,25,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+      var mP=[0,0,0,5,10,16,20,26,31,31,31,31,26,26,20,20,16,16,10,8,5,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+      var dP=[0,0,0,0,0,0,0,10,15,20,26,31,36,36,36,36,31,31,26,26,20,16,10,8,5,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+      for(var sw=0;sw<42;sw++){synPlan['W'+String(sw+1).padStart(2,'0')]={h:hP[sw]||0,m:mP[sw]||0,d:dP[sw]||0,wd:5}}
+      synPlan.W29.wd=0;synPlan.W30.wd=2;// Navidad
+      synPlan.W41.wd=3;// Semana Santa
+      synPlan.W12.wd=3;synPlan.W20.wd=4;synPlan.W35.wd=3;// Lluvia
+      CACHE._dpPlanData=synPlan;
       document.getElementById('dp-meta').innerHTML='<span style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">DEMO</span> '+new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
     }else{
       document.getElementById('dp-meta').innerHTML='Actualizado '+new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
@@ -2639,6 +2659,7 @@ function dpRender(){
   else if(_dpTab==='pvs')dpPvs(el,d);
   else if(_dpTab==='team')dpTeam(el,d);
   else if(_dpTab==='incidents')dpIncidents(el,d);
+  else if(_dpTab==='plan')dpPlan(el,d);
 }
 
 function _dpCard(title,icon,content){
@@ -3286,6 +3307,120 @@ function dpIncidents(el,d){
 
   el.innerHTML=_dpCard('Incidencias','⚠️',h);
 }
+
+// ============================================================
+// PLANIFICACIÓN — Curva S + Forecasting
+// ============================================================
+function dpPlan(el,d){
+  _dpDestroy();
+  if(!window._dpPlanView)window._dpPlanView='chart';
+  var pv=window._dpPlanView;
+  var PLAN={startDate:'2025-06-02',endDate:'2026-03-15',totalPilars:0,totalTrackers:d.kpis.total};
+  Object.keys(MASTER_DATA).forEach(function(code){var cfg=PCFG[MASTER_DATA[code].type];if(!cfg)return;PLAN.totalPilars+=(cfg.conducida?cfg.motor.length+cfg.conducida.length:cfg.motor.length)});
+  if(PLAN.totalPilars===0)PLAN.totalPilars=15000;
+  var startD=new Date(PLAN.startDate);var endD=new Date(PLAN.endDate);var today=new Date();today.setHours(0,0,0,0);
+  // Generate week list
+  var weeks=[];var wd=new Date(startD);while(wd.getDay()!==1)wd.setDate(wd.getDate()-1);
+  while(wd<=endD){var wEnd=new Date(wd);wEnd.setDate(wEnd.getDate()+4);weeks.push({start:new Date(wd),end:wEnd,key:'W'+String(weeks.length+1).padStart(2,'0'),label:'S'+String(weeks.length+1).padStart(2,'0')+' ('+wd.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'})+')',isPast:wEnd<today,isCurrent:(wd<=today&&wEnd>=today)});wd.setDate(wd.getDate()+7)}
+  // Load planning from Firebase
+  if(!CACHE._dpPlanData&&!CACHE._dpPlanLoading){CACHE._dpPlanLoading=true;db.ref('planning/weeks').once('value',function(s){CACHE._dpPlanData=s.val()||{};CACHE._dpPlanLoading=false;dpRender()})}
+  var planData=CACHE._dpPlanData||{};
+  // Sub-tabs
+  var h='<div style="display:flex;gap:4px;margin-bottom:14px">';
+  [{id:'chart',l:'\ud83d\udcc8 Curva S'},{id:'edit',l:'\ud83d\udccb Planificar'}].forEach(function(tab){var active=pv===tab.id;h+='<button onclick="window._dpPlanView=\''+tab.id+'\';dpRender()" style="flex:1;padding:10px;border-radius:8px;font-size:12px;font-weight:'+(active?'700':'500')+';border:2px solid '+(active?'#059669':'#E2E8F0')+';background:'+(active?'#05966915':'#fff')+';color:'+(active?'#059669':'#64748B')+';cursor:pointer;font-family:inherit">'+tab.l+'</button>'});
+  h+='</div>';
+  // ─── EDIT VIEW ───
+  if(pv==='edit'){
+    h+='<div style="background:#fff;border-radius:14px;padding:16px;border:1px solid #E2E8F0;margin-bottom:12px">';
+    h+='<div style="font-size:13px;font-weight:700;color:#1E293B;margin-bottom:10px">Rellenar objetivo base</div>';
+    h+='<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">';
+    h+='<div><div style="font-size:9px;color:#94A3B8;margin-bottom:2px">Hincas/d\u00eda</div><input id="pf-h" class="inp" type="number" value="80" style="width:72px;height:36px;font-size:14px;background:#F8FAFC"></div>';
+    h+='<div><div style="font-size:9px;color:#94A3B8;margin-bottom:2px">Montaje/d\u00eda</div><input id="pf-m" class="inp" type="number" value="6" style="width:72px;height:36px;font-size:14px;background:#F8FAFC"></div>';
+    h+='<div><div style="font-size:9px;color:#94A3B8;margin-bottom:2px">M\u00f3dulos/d\u00eda</div><input id="pf-d" class="inp" type="number" value="8" style="width:72px;height:36px;font-size:14px;background:#F8FAFC"></div>';
+    h+='<button onclick="dpPlanFillAll()" style="padding:8px 14px;border-radius:8px;background:#059669;color:#fff;border:none;font-weight:700;font-size:12px;cursor:pointer;height:36px;font-family:inherit">Rellenar todo</button>';
+    h+='</div></div>';
+    // Week table
+    h+='<div style="background:#fff;border-radius:14px;padding:12px;border:1px solid #E2E8F0;overflow-x:auto;-webkit-overflow-scrolling:touch">';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:460px"><thead><tr>';
+    ['Semana','Hincas/d','Montaje/d','M\u00f3dulos/d','D\u00edas'].forEach(function(hd){h+='<th style="text-align:left;padding:6px 4px;font-size:9px;font-weight:600;color:#94A3B8;text-transform:uppercase;border-bottom:2px solid #E2E8F0">'+hd+'</th>'});
+    h+='</tr></thead><tbody>';
+    weeks.forEach(function(wk){
+      var pw=planData[wk.key]||{};var bg=wk.isCurrent?'#F0FDF4':wk.isPast?'#FAFBFC':'#fff';
+      h+='<tr style="background:'+bg+'">';
+      h+='<td style="padding:5px 4px;font-weight:600;font-size:10px;white-space:nowrap;'+(wk.isCurrent?'border-left:3px solid #16A34A;':'')+'">'+wk.label+(wk.isCurrent?' \u2190':'')+'</td>';
+      ['h','m','d'].forEach(function(act){var val=pw[act]!=null?pw[act]:'';h+='<td style="padding:3px 2px"><input type="number" min="0" value="'+val+'" onchange="dpPlanSetWeek(\''+wk.key+'\',\''+act+'\',this.value)" style="width:52px;height:30px;border-radius:6px;border:1px solid #E2E8F0;text-align:center;font-size:12px;font-weight:600;font-family:inherit;background:'+(val?'#fff':'#FEF3C7')+'" placeholder="\u2014"></td>'});
+      var wd2=pw.wd!=null?pw.wd:5;
+      h+='<td style="padding:3px 2px"><input type="number" min="0" max="7" value="'+wd2+'" onchange="dpPlanSetWeek(\''+wk.key+'\',\'wd\',this.value)" style="width:38px;height:30px;border-radius:6px;border:1px solid #E2E8F0;text-align:center;font-size:11px;font-family:inherit"></td>';
+      h+='</tr>'});
+    h+='</tbody></table></div>';
+    // Totals
+    var totH=0,totM=0,totD=0,totWd=0;
+    weeks.forEach(function(wk){var pw=planData[wk.key]||{};var wd3=pw.wd!=null?pw.wd:5;totH+=(pw.h||0)*wd3;totM+=(pw.m||0)*wd3;totD+=(pw.d||0)*wd3;totWd+=wd3});
+    h+='<div style="background:#fff;border-radius:14px;padding:14px;border:1px solid #E2E8F0;margin-top:12px"><div style="font-size:12px;font-weight:700;margin-bottom:8px">Totales planificados</div>';
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">';
+    [{l:'HINCAS',v:totH,c:'#16A34A',t:'Obj: '+PLAN.totalPilars.toLocaleString('es-ES')},{l:'MONTAJE',v:totM,c:'#3B82F6',t:'trackers'},{l:'M\u00d3DULOS',v:totD,c:'#8B5CF6',t:'trackers'},{l:'D\u00cdAS LAB',v:totWd,c:'#1E293B',t:weeks.length+' sem'}].forEach(function(s){
+      h+='<div style="text-align:center;padding:8px;background:#F8FAFC;border-radius:6px"><div style="font-size:20px;font-weight:700;color:'+s.c+'">'+s.v.toLocaleString('es-ES')+'</div><div style="font-size:8px;color:#94A3B8">'+s.l+'</div><div style="font-size:8px;color:#CBD5E1">'+s.t+'</div></div>'});
+    h+='</div></div>';
+    el.innerHTML=h;return;
+  }
+  // ─── CHART VIEW ───
+  var cumH=0,cumM=0,cumD=0;var plannedH={},plannedM={},plannedD={};
+  weeks.forEach(function(wk){var pw=planData[wk.key]||{};var wd3=pw.wd!=null?pw.wd:5;var wH=(pw.h||0)*wd3;var wM=(pw.m||0)*wd3;var wD=(pw.d||0)*wd3;
+    for(var dd=0;dd<7;dd++){var dt=new Date(wk.start);dt.setDate(dt.getDate()+dd);if(dt.getDay()===0||dt.getDay()===6)continue;if(dt>endD)break;cumH+=wH/Math.max(wd3,1);cumM+=wM/Math.max(wd3,1);cumD+=wD/Math.max(wd3,1);var iso=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');plannedH[iso]=Math.round(cumH);plannedM[iso]=Math.round(cumM);plannedD[iso]=Math.round(cumD)}});
+  var hasPlan=Object.keys(planData).length>0&&Object.values(planData).some(function(w){return w.h>0});
+  if(!hasPlan){var tpd=Math.round((endD-startD)/(1000*60*60*24));var wdt=0;for(var dd2=0;dd2<=tpd;dd2++){var dt2=new Date(startD);dt2.setDate(dt2.getDate()+dd2);if(dt2.getDay()!==0&&dt2.getDay()!==6)wdt++}var wdc=0;for(var dd3=0;dd3<=tpd;dd3++){var dt3=new Date(startD);dt3.setDate(dt3.getDate()+dd3);if(dt3.getDay()===0||dt3.getDay()===6)continue;wdc++;var t2=wdc/wdt;var sC=(1-Math.cos(t2*Math.PI))/2;var iso2=dt3.getFullYear()+'-'+String(dt3.getMonth()+1).padStart(2,'0')+'-'+String(dt3.getDate()).padStart(2,'0');plannedH[iso2]=Math.round(sC*PLAN.totalPilars);plannedM[iso2]=Math.round(sC*PLAN.totalTrackers);plannedD[iso2]=Math.round(sC*PLAN.totalTrackers)}}
+  var realByDay={};var sortedDays=Object.keys(d.calMap).sort();var cumReal=0;sortedDays.forEach(function(iso){cumReal+=d.calMap[iso];realByDay[iso]=cumReal});var currentPilars=cumReal;
+  var todayIso=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+  var recentDays=sortedDays.slice(-20);var recentWork=0;var recentPilars=0;
+  recentDays.forEach(function(iso){var dt4=new Date(iso);if(dt4.getDay()!==0&&dt4.getDay()!==6&&d.calMap[iso]>0){recentWork++;recentPilars+=d.calMap[iso]}});
+  var dailyRate=recentWork>0?Math.round(recentPilars/recentWork):0;var remaining=PLAN.totalPilars-currentPilars;
+  var workDaysNeeded=dailyRate>0?Math.ceil(remaining/dailyRate):999;var estEnd=new Date(today);var wdLeft=workDaysNeeded;
+  while(wdLeft>0){estEnd.setDate(estEnd.getDate()+1);if(estEnd.getDay()!==0&&estEnd.getDay()!==6)wdLeft--}
+  var daysVsPlan=Math.round((estEnd-endD)/(1000*60*60*24));
+  var semaforo=daysVsPlan<=-7?'green':daysVsPlan<=7?'amber':'red';
+  var sC2=semaforo==='green'?'#16A34A':semaforo==='amber'?'#F59E0B':'#EF4444';
+  var sBg=semaforo==='green'?'#DCFCE7':semaforo==='amber'?'#FEF3C7':'#FEE2E2';
+  var sI=semaforo==='green'?'\u2705':semaforo==='amber'?'\u26a0\ufe0f':'\ud83d\udd34';
+  var sT=semaforo==='green'?'En plazo':semaforo==='amber'?'Ajustado':'Con retraso';
+  var plannedToday=0;Object.keys(plannedH).sort().forEach(function(k){if(k<=todayIso)plannedToday=plannedH[k]});
+  var desvPilars=currentPilars-plannedToday;
+  // Sem\u00e1foro
+  h+='<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">';
+  h+='<div style="flex:1;min-width:130px;background:'+sBg+';border-radius:14px;padding:14px;text-align:center;border:2px solid '+sC2+'"><div style="font-size:28px">'+sI+'</div><div style="font-size:15px;font-weight:700;color:'+sC2+'">'+sT+'</div><div style="font-size:10px;color:#64748B">'+(daysVsPlan<=0?Math.abs(daysVsPlan)+' d\u00edas adelant.':daysVsPlan+' d\u00edas retraso')+'</div></div>';
+  h+='<div style="flex:1;min-width:130px;background:#fff;border-radius:14px;padding:14px;border:1px solid #E2E8F0"><div style="font-size:9px;color:#94A3B8">FIN ESTIMADA</div><div style="font-size:17px;font-weight:700;color:'+sC2+'">'+estEnd.toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'})+'</div><div style="font-size:10px;color:#64748B">Contract: '+endD.toLocaleDateString('es-ES',{day:'numeric',month:'short'})+'</div></div>';
+  h+='<div style="flex:1;min-width:130px;background:#fff;border-radius:14px;padding:14px;border:1px solid #E2E8F0"><div style="font-size:9px;color:#94A3B8">RITMO</div><div style="font-size:17px;font-weight:700;color:#3B82F6">'+dailyRate+' <span style="font-size:11px;color:#94A3B8">pil/d</span></div>';
+  var neededRate=remaining>0?Math.ceil(remaining/Math.max(1,Math.round((endD-today)/(1000*60*60*24)*5/7))):0;
+  h+='<div style="font-size:10px;color:#64748B">Necesario: '+neededRate+'</div></div></div>';
+  // Progress
+  var pctDone=PLAN.totalPilars>0?Math.round(currentPilars/PLAN.totalPilars*1000)/10:0;
+  var planPct=PLAN.totalPilars>0?Math.round(plannedToday/PLAN.totalPilars*100):0;
+  h+='<div style="background:#fff;border-radius:14px;padding:12px 14px;border:1px solid #E2E8F0;margin-bottom:14px">';
+  h+='<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="font-size:11px;font-weight:600">Hincado</span><span style="font-size:15px;font-weight:700;color:#059669">'+pctDone+'%</span></div>';
+  h+='<div style="width:100%;height:12px;border-radius:6px;background:#F1F5F9;overflow:hidden;position:relative">';
+  h+='<div style="position:absolute;left:'+planPct+'%;top:0;width:2px;height:12px;background:#1E293B;z-index:2"></div>';
+  h+='<div style="height:100%;border-radius:6px;background:linear-gradient(90deg,#059669,#16A34A);width:'+pctDone+'%"></div></div>';
+  h+='<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:9px;color:#94A3B8"><span>'+currentPilars.toLocaleString('es-ES')+' / '+PLAN.totalPilars.toLocaleString('es-ES')+'</span><span>Plan: '+plannedToday.toLocaleString('es-ES')+' (<span style="color:'+(desvPilars>=0?'#16A34A':'#EF4444')+';font-weight:600">'+(desvPilars>=0?'+':'')+desvPilars+'</span>)</span></div></div>';
+  // Chart
+  h+=_dpCard('Curva S'+(hasPlan?' \u2014 Plan semanal':' \u2014 Sint\u00e9tico'),'\ud83d\udcc8','<div style="position:relative;height:260px;width:100%;overflow:hidden"><canvas id="dp-curva-s"></canvas></div><div style="display:flex;gap:10px;margin-top:6px;font-size:9px;color:#64748B;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:2px;background:#94A3B8;display:inline-block;border-radius:1px"></span>Plan</span><span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:3px;background:#16A34A;display:inline-block;border-radius:1px"></span>Real</span><span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:2px;background:'+sC2+';display:inline-block;border-radius:1px"></span>Forecast</span>'+(hasPlan?'<span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:2px;background:#3B82F6;display:inline-block;border-radius:1px"></span>Montaje</span><span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:2px;background:#8B5CF6;display:inline-block;border-radius:1px"></span>M\u00f3dulos</span>':'')+'</div>'+(!hasPlan?'<div style="margin-top:6px;padding:6px 10px;border-radius:6px;background:#FEF3C7;font-size:10px;color:#92400E">\u26a0\ufe0f Curva sint\u00e9tica \u2014 <button onclick="window._dpPlanView=\'edit\';dpRender()" style="background:none;border:none;color:#059669;font-weight:700;cursor:pointer;font-size:10px;text-decoration:underline;font-family:inherit">Introduce tu plan</button></div>':''));
+  // Info
+  var elapsed=Math.round((today-startD)/(1000*60*60*24));var totalDays=Math.round((endD-startD)/(1000*60*60*24));
+  var inf='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px">';
+  [{l:'INICIO',v:startD.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'})},{l:'FIN',v:endD.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'})},{l:'D\u00cdAS',v:elapsed+'/'+totalDays},{l:'RESTANTES',v:remaining.toLocaleString('es-ES')},{l:'TRACKERS',v:PLAN.totalTrackers}].forEach(function(item){inf+='<div style="padding:6px;background:#F8FAFC;border-radius:6px;text-align:center"><div style="font-size:8px;color:#94A3B8;font-weight:600">'+item.l+'</div><div style="font-size:12px;font-weight:700;color:#1E293B">'+item.v+'</div></div>'});
+  inf+='</div>';
+  h+=_dpCard('Proyecto','\ud83d\udccb',inf);
+  el.innerHTML=h;
+  // Render chart
+  setTimeout(function(){if(typeof Chart==='undefined')return;var ctx=document.getElementById('dp-curva-s');if(!ctx)return;
+    try{var allDates=Object.keys(plannedH).sort();var labels=[];var pH=[];var pM=[];var pD2=[];var rH=[];var fD=[];
+    var step=Math.max(1,Math.floor(allDates.length/55));
+    allDates.forEach(function(iso,idx){if(idx%step!==0&&idx!==allDates.length-1)return;var dt5=new Date(iso);labels.push(dt5.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'}));pH.push(plannedH[iso]||0);if(hasPlan){pM.push(plannedM[iso]||0);pD2.push(plannedD[iso]||0)}if(realByDay[iso]!=null)rH.push(realByDay[iso]);else if(iso<=todayIso){var prev=0;Object.keys(realByDay).sort().forEach(function(k){if(k<=iso)prev=realByDay[k]});rH.push(prev||null)}else rH.push(null);if(iso>=todayIso){var df=Math.round((dt5-today)/(1000*60*60*24));fD.push(Math.min(PLAN.totalPilars,currentPilars+Math.round(df*5/7)*dailyRate))}else fD.push(null)});
+    var ds=[{label:'Plan hincado',data:pH,borderColor:'#94A3B8',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:.3},{label:'Real',data:rH,borderColor:'#16A34A',borderWidth:3,pointRadius:0,fill:{target:'origin',above:'rgba(22,163,74,.06)'},tension:.2,spanGaps:true},{label:'Forecast',data:fD,borderColor:sC2,borderWidth:2,borderDash:[4,4],pointRadius:0,fill:false,tension:.3,spanGaps:true}];
+    if(hasPlan){ds.push({label:'Plan montaje',data:pM,borderColor:'#3B82F6',borderWidth:1.5,borderDash:[4,3],pointRadius:0,fill:false,tension:.3});ds.push({label:'Plan m\u00f3dulos',data:pD2,borderColor:'#8B5CF6',borderWidth:1.5,borderDash:[4,3],pointRadius:0,fill:false,tension:.3})}
+    var ch=new Chart(ctx,{type:'line',data:{labels:labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c2){return c2.dataset.label+': '+Math.round(c2.raw).toLocaleString('es-ES')}}}},scales:{x:{grid:{display:false},ticks:{font:{size:7},color:'#94A3B8',maxRotation:45,autoSkip:true,maxTicksLimit:12}},y:{grid:{color:'#F1F5F9'},ticks:{font:{size:8},color:'#94A3B8',callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v}}}}},plugins:[{id:'tl',afterDraw:function(ch2){var tl=today.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});var xI=-1;labels.forEach(function(l,li){if(l===tl)xI=li});if(xI<0){var md=999;labels.forEach(function(l,li){var dd4=Math.abs(li-labels.length*0.7);if(dd4<md){md=dd4;xI=li}})}if(xI>=0){var xs=ch2.scales.x;var ys=ch2.scales.y;var x=xs.getPixelForValue(xI);var c3=ch2.ctx;c3.save();c3.strokeStyle='#1E293B';c3.lineWidth=2;c3.setLineDash([4,3]);c3.beginPath();c3.moveTo(x,ys.top);c3.lineTo(x,ys.bottom);c3.stroke();c3.fillStyle='#1E293B';c3.font='bold 8px DM Sans';c3.textAlign='center';c3.fillText('HOY',x,ys.top-3);c3.restore()}}}]});
+    _dpCharts.push(ch)}catch(e){DBG('Curva S err: '+e.message)}},80);
+}
+function dpPlanFillAll(){var hv=parseInt(document.getElementById('pf-h').value)||0;var mv=parseInt(document.getElementById('pf-m').value)||0;var dv=parseInt(document.getElementById('pf-d').value)||0;if(!CACHE._dpPlanData)CACHE._dpPlanData={};var inputs=document.querySelectorAll('input[onchange*="dpPlanSetWeek"]');var keys={};inputs.forEach(function(inp){var m2=inp.getAttribute('onchange').match(/dpPlanSetWeek\('(W\d+)'/);if(m2)keys[m2[1]]=true});Object.keys(keys).forEach(function(wk){if(!CACHE._dpPlanData[wk])CACHE._dpPlanData[wk]={};CACHE._dpPlanData[wk].h=hv;CACHE._dpPlanData[wk].m=mv;CACHE._dpPlanData[wk].d=dv;if(!CACHE._dpPlanData[wk].wd)CACHE._dpPlanData[wk].wd=5});db.ref('planning/weeks').set(CACHE._dpPlanData);showToast('\u2705 Plan guardado','var(--ac)');dpRender()}
+function dpPlanSetWeek(wk,field,val){if(!CACHE._dpPlanData)CACHE._dpPlanData={};if(!CACHE._dpPlanData[wk])CACHE._dpPlanData[wk]={wd:5};CACHE._dpPlanData[wk][field]=parseInt(val)||0;if(window._dpPST)clearTimeout(window._dpPST);window._dpPST=setTimeout(function(){db.ref('planning/weeks').set(CACHE._dpPlanData);showToast('\u2705 Guardado','var(--ac)')},1500)}
 
 
 // ============================================================
