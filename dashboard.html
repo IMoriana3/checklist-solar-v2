@@ -52,7 +52,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);min-h
 <div id="pcon"></div><div id="pcal" style="display:none"></div>
 <script>
 firebase.initializeApp({apiKey:"AIzaSyBHKN65MLHScTNN-L5HwfvWqafAkfsFiAU",authDomain:"construccionxamai.firebaseapp.com",databaseURL:"https://construccionxamai-default-rtdb.europe-west1.firebasedatabase.app",projectId:"construccionxamai",storageBucket:"construccionxamai.firebasestorage.app",messagingSenderId:"71667188901",appId:"1:71667188901:web:663c605a1fbe53a3caf94c"});
-var db=firebase.database(),auth=firebase.auth(),D={con:{},wf:{},pl:{},log:[]},ld=0;
+var db=firebase.database(),auth=firebase.auth(),D={con:{},wf:{},pl:{},log:[],qual:{},qlog:[]},ld=0;
 
 // Try to start immediately, auth or not
 document.getElementById('st').textContent='Conectando...';
@@ -89,6 +89,8 @@ function rdy(){ld++;if(ld>=3){document.getElementById('st').textContent='En vivo
   db.ref('workflow').on('value',function(s){D.wf=s.val()||{};rdy();if(ld>=3)renderAll()},function(e){console.error('workflow error:',e);showErr('workflow: '+e.message);rdy()});
   db.ref('punchlist').on('value',function(s){D.pl=s.val()||{};rdy();if(ld>=3)renderAll()},function(e){console.error('punchlist error:',e);showErr('punchlist: '+e.message);rdy()});
   db.ref('con_log').limitToLast(5000).on('value',function(s){D.log=Object.values(s.val()||{})},function(e){console.error('con_log error:',e)});
+  db.ref('quality').on('value',function(s){D.qual=s.val()||{};if(ld>=3)renderAll()},function(e){console.error('quality error:',e)});
+  db.ref('quality_log').limitToLast(5000).on('value',function(s){D.qlog=Object.values(s.val()||{});if(ld>=3)renderAll()},function(e){console.error('qlog error:',e)});
   
   // Timeout fallback — render whatever we have after 8 seconds
   setTimeout(function(){
@@ -153,14 +155,164 @@ function rCon(){
 }
 
 function rCal(){
-  var el=document.getElementById('pcal'),pls=Object.values(D.pl),pe=pls.filter(function(p){return p.estado==='pendiente'}).length,re=pls.filter(function(p){return p.estado==='reparado'}).length,ve=pls.filter(function(p){return p.estado==='verificado'}).length;
-  var h='<div class="grid g3">'+kp('Pendientes',pe,'','','var(--err)')+kp('Reparados',re,'','','var(--warn)')+kp('Verificados',ve,'','','var(--ac)')+'</div>';
+  var el=document.getElementById('pcal');
+  
+  // Count quality stats from Firebase data
+  var totalTr=0,doneTr=0,wipTr=0,badTr=0;
+  var byTec={},byPv={};
+  var incidents=[];
+  
+  // MED/COMP field definitions for tolerance checks
+  var tolFields={vert_ns:[88,92],vert_eo:[88,92]};
+  var compDefs={galvanizado:'SI',golpes:'NO',entalladura:'NO',pliegue:'NO',cabezas:'NO',corte:'NO',mecanizados:'NO',orientacion:'SI',perfil:'SI',oxidacion:'NO',socavones:'NO',cimentacion:'SI',zanjas:'NO'};
+  
+  Object.keys(D.qual).forEach(function(code){
+    var qd=D.qual[code];
+    var m=typeof MASTER_DATA!=='undefined'?MASTER_DATA[code]:null;
+    if(!m)return;
+    totalTr++;
+    
+    var pvKey='PV'+String(m.pv).padStart(2,'0');
+    if(!byPv[pvKey])byPv[pvKey]={t:0,d:0,b:0};
+    byPv[pvKey].t++;
+    
+    // Check fields
+    var filled=0,total=0,hasBad=false;
+    Object.keys(qd).forEach(function(k){
+      // Count MED fields
+      var medMatch=k.match(/^(fm|fc)_\d+_(altura|dist_ns_tramo|vert_ns|vert_eo)$/);
+      if(medMatch){
+        total++;filled++;
+        var v=qd[k];
+        if(tolFields[medMatch[2]]&&typeof v==='number'){
+          if(v<tolFields[medMatch[2]][0]||v>tolFields[medMatch[2]][1]){
+            hasBad=true;
+            incidents.push({t:code,pv:pvKey,f:k,v:v});
+          }
+        }
+      }
+      // Count COMP fields
+      var compMatch=k.match(/^(fm|fc)_\d+_(galvanizado|golpes|entalladura|pliegue|cabezas|corte|mecanizados|orientacion|perfil|oxidacion|socavones|cimentacion|zanjas)$/);
+      if(compMatch){
+        total++;filled++;
+        var v2=qd[k];
+        if(compDefs[compMatch[2]]&&v2!==compDefs[compMatch[2]]){
+          hasBad=true;
+        }
+      }
+      // Mont/Mod
+      if(k.indexOf('mont_')===0||k.indexOf('mod_')===0){total++;filled++}
+    });
+    
+    if(filled>0&&!hasBad)doneTr++;
+    if(filled>0&&hasBad){badTr++;byPv[pvKey].b++}
+    if(filled>0){wipTr++;byPv[pvKey].d++}
+  });
+  
+  // Quality log stats
+  var qByDay={},qByTec={};
+  D.qlog.forEach(function(l){
+    if(!l.ts)return;
+    var d=new Date(l.ts);
+    var dk=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if(!qByDay[dk])qByDay[dk]=0;
+    qByDay[dk]++;
+    if(l.by){if(!qByTec[l.by])qByTec[l.by]=0;qByTec[l.by]++}
+  });
+  
+  var totalChanges=D.qlog.length;
+  var workDays=Object.keys(qByDay).length;
+  var dailyAvg=workDays>0?Math.round(totalChanges/workDays):0;
+  
+  // Punchlist
+  var pls=Object.values(D.pl);
+  var pe=pls.filter(function(p){return p.estado==='pendiente'}).length;
+  var re=pls.filter(function(p){return p.estado==='reparado'}).length;
+  var ve=pls.filter(function(p){return p.estado==='verificado'}).length;
+  
+  var h='';
+  
+  // KPIs
+  h+='<div class="grid g4">';
+  h+=kp('Trackers Inspeccionados',wipTr,totalTr,totalTr>0?Math.round(wipTr/totalTr*100):0,'var(--ac)');
+  h+=kp('Registros Campo',totalChanges,'','','var(--info)');
+  h+=kp('Con Incidencias',badTr,totalTr,totalTr>0?Math.round(badTr/totalTr*100):0,'var(--err)');
+  h+=kp('Media Diaria',dailyAvg,'','','var(--tx2)');
+  h+='</div>';
+  
+  // Daily chart + Punchlist KPIs
+  h+='<div class="grid g2">';
+  h+='<div class="card"><div class="card-t">Actividad Diaria Calidad</div><div style="height:180px"><canvas id="qchart"></canvas></div></div>';
+  h+='<div class="card"><div class="card-t">Punchlist</div>';
+  h+='<div style="display:flex;justify-content:space-around;margin:16px 0">';
+  h+=sn(pe,'Pendientes','var(--err)');
+  h+=sn(re,'Reparados','var(--warn)');
+  h+=sn(ve,'Verificados','var(--ac)');
+  h+='</div>';
+  if(pe+re+ve>0){
+    var plT=pe+re+ve;
+    h+='<div class="sbar">';
+    h+='<div style="width:'+(pe/plT*100)+'%;background:var(--err);color:#fff">'+pe+'</div>';
+    h+='<div style="width:'+(re/plT*100)+'%;background:var(--warn);color:#000">'+re+'</div>';
+    h+='<div style="width:'+(ve/plT*100)+'%;background:var(--ac);color:#000">'+ve+'</div>';
+    h+='</div>';
+  }
+  h+='</div></div>';
+  
+  // By technician + By PV
+  h+='<div class="grid g2">';
+  
+  h+='<div class="card"><div class="card-t">Por Técnico</div>';
+  var tecs=Object.keys(qByTec).sort(function(a,b){return qByTec[b]-qByTec[a]});
+  var tc2=['#3ecf8e','#3b82f6','#a78bfa','#f5a623','#ef4444','#ec4899'];
+  tecs.forEach(function(t,i){
+    h+='<div class="trow"><div class="tava" style="background:'+tc2[i%tc2.length]+'">'+t.substring(0,2).toUpperCase()+'</div>';
+    h+='<div style="flex:1"><div style="font-weight:600;font-size:13px">'+t+'</div>';
+    h+='<div style="font-size:11px;color:var(--tx2)">'+qByTec[t]+' registros</div></div>';
+    h+='<div style="font-size:16px;font-weight:700;color:var(--ac)">'+qByTec[t]+'</div></div>';
+  });
+  if(!tecs.length)h+='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Sin datos</div>';
+  h+='</div>';
+  
+  h+='<div class="card"><div class="card-t">Calidad por PV</div>';
+  Object.keys(byPv).sort().forEach(function(pv){
+    var p=byPv[pv];var pp=p.t>0?Math.round(p.d/p.t*100):0;
+    var bc=p.b>0?'var(--err)':pp>=100?'var(--ac)':'var(--info)';
+    h+='<div class="pvr"><div style="font-weight:600;font-size:12px;min-width:70px">'+pv+'</div>';
+    h+='<div style="flex:1;height:8px;border-radius:4px;background:var(--bg);overflow:hidden"><div class="pbar-f" style="width:'+pp+'%;background:'+bc+'"></div></div>';
+    h+='<div style="font-size:12px;font-weight:600;min-width:44px;text-align:right;color:'+bc+'">'+pp+'%</div>';
+    h+='<div style="font-size:10px;color:var(--tx2);min-width:50px;text-align:right">'+p.d+'/'+p.t+'</div></div>';
+  });
+  if(!Object.keys(byPv).length)h+='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Sin datos</div>';
+  h+='</div>';
+  
+  h+='</div>';
+  
+  // Incidents
+  if(incidents.length>0){
+    h+='<div class="grid g1"><div class="card"><div class="card-t" style="color:var(--err)">Incidencias de Tolerancia ('+incidents.length+')</div>';
+    incidents.slice(0,20).forEach(function(inc){
+      h+='<div class="inc"><div style="font-weight:700;font-size:12px">'+inc.t+' <span style="font-size:10px;color:var(--tx3)">'+inc.pv+'</span></div>';
+      h+='<div style="font-size:11px;color:var(--err);margin-top:2px">'+inc.f+': '+inc.v+'°</div></div>';
+    });
+    h+='</div></div>';
+  }
+  
+  // Pending punchlist
   var pend=pls.filter(function(p){return p.estado==='pendiente'});
-  if(pend.length>0){h+='<div class="grid g1"><div class="card"><div class="card-t" style="color:var(--err)">Punchlist Pendientes ('+pend.length+')</div>';
-    pend.slice(0,20).forEach(function(p){h+='<div class="inc"><div style="font-weight:700;font-size:12px">'+(p.tracker||'?')+' · '+(p.pilar||'?')+'</div><div style="font-size:11px;color:var(--err);margin-top:2px">'+p.desc+'</div>'+(p.detectadoPor?'<div style="font-size:10px;color:var(--tx3);margin-top:2px">'+p.detectadoPor+'</div>':'')+'</div>'});
-    h+='</div></div>'}
-  h+='<div class="grid g1"><div class="card"><div class="card-t">Calidad — Cimentaciones & Montaje</div><div style="padding:20px;text-align:center;color:var(--tx2)"><div style="font-size:28px;margin-bottom:8px">🚧</div>Datos de calidad se migran en la siguiente fase</div></div></div>';
+  if(pend.length>0){
+    h+='<div class="grid g1"><div class="card"><div class="card-t" style="color:var(--err)">Punchlist Pendientes ('+pend.length+')</div>';
+    pend.slice(0,20).forEach(function(p){
+      h+='<div class="inc"><div style="font-weight:700;font-size:12px">'+(p.tracker||'?')+' · '+(p.pilar||'?')+'</div>';
+      h+='<div style="font-size:11px;color:var(--err);margin-top:2px">'+p.desc+'</div>';
+      if(p.detectadoPor)h+='<div style="font-size:10px;color:var(--tx3);margin-top:2px">'+p.detectadoPor+'</div>';
+      h+='</div>';
+    });
+    h+='</div></div>';
+  }
+  
   el.innerHTML=h;
+  setTimeout(function(){drw('qchart',qByDay,'34,197,94')},50);
 }
 
 function drw(id,bd,rgb){
