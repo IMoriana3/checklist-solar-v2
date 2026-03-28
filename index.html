@@ -2043,7 +2043,7 @@ function dpRender(){
 }
 
 function _dpCard(title,icon,content){
-  return '<div style="background:#fff;border-radius:14px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid #E2E8F0">'
+  return '<div style="background:#fff;border-radius:14px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid #E2E8F0;min-width:0;overflow:hidden">'
     +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid rgba(5,150,105,.13)">'
     +'<span style="font-size:16px">'+icon+'</span>'
     +'<span style="font-size:14px;font-weight:700;letter-spacing:-.01em">'+title+'</span></div>'
@@ -2051,11 +2051,17 @@ function _dpCard(title,icon,content){
 }
 
 function dpOverview(el,d){
-  var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
+  // Inject responsive style once
+  if(!document.getElementById('dp-grid-style')){
+    var sty=document.createElement('style');sty.id='dp-grid-style';
+    sty.textContent='.dp-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:700px){.dp-grid2{grid-template-columns:1fr}}.dp-grid2>div{min-width:0;overflow:hidden}';
+    document.head.appendChild(sty);
+  }
+  var h='<div class="dp-grid2">';
 
   // Donut — using canvas
-  var donutHTML='<div style="display:flex;align-items:center;gap:20px">'
-    +'<div style="width:160px;height:160px;flex-shrink:0"><canvas id="dp-donut" width="160" height="160"></canvas></div>'
+  var donutHTML='<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:center">'
+    +'<div style="width:140px;height:140px;flex-shrink:0"><canvas id="dp-donut" width="140" height="140"></canvas></div>'
     +'<div style="display:flex;flex-direction:column;gap:8px">'
     +_dpLegendItem('#16A34A','Validados',d.kpis.completed)
     +_dpLegendItem('#3B82F6','En curso',d.kpis.inProgress)
@@ -2067,8 +2073,8 @@ function dpOverview(el,d){
     +'<div style="font-size:11px;color:#94A3B8">avance total de obra</div></div>';
   h+=_dpCard('Estado global','🎯',donutHTML);
 
-  // Daily bar chart
-  h+=_dpCard('Actividad diaria (últimos 30 días)','📈','<canvas id="dp-daily" height="200"></canvas>');
+  // Daily bar chart — wrapped in fixed-height container with overflow hidden
+  h+=_dpCard('Actividad diaria (últimos 30 días)','📈','<div style="position:relative;height:200px;width:100%;overflow:hidden"><canvas id="dp-daily"></canvas></div>');
 
   // Technicians
   var techHTML='';
@@ -2169,7 +2175,7 @@ function dpPvs(el,d){
 
 function dpTeam(el,d){
   var colors=[{c:'#16A34A',g:'#059669'},{c:'#3B82F6',g:'#2563EB'},{c:'#8B5CF6',g:'#7C3AED'},{c:'#F59E0B',g:'#D97706'},{c:'#EC4899',g:'#DB2777'}];
-  var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
+  var h='<div class="dp-grid2">';
 
   d.byTech.forEach(function(t,i){
     var ci=colors[i%5];
@@ -2201,7 +2207,7 @@ function dpTeam(el,d){
 }
 
 function dpIncidents(el,d){
-  var h='<table style="width:100%;border-collapse:separate;border-spacing:0 3px;font-size:12px">';
+  var h='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:separate;border-spacing:0 3px;font-size:12px;min-width:480px">';
   h+='<thead><tr>';
   ['Tracker','PV','Campo afectado','Técnico','Fecha'].forEach(function(hd){
     h+='<th style="text-align:left;padding:8px 10px;font-size:10px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #E2E8F0">'+hd+'</th>';
@@ -2220,7 +2226,7 @@ function dpIncidents(el,d){
   });
 
   if(d.incidents.length===0)h+='<tr><td colspan="5" style="text-align:center;padding:30px;color:#94A3B8">Sin incidencias registradas</td></tr>';
-  h+='</tbody></table>';
+  h+='</tbody></table></div>';
 
   el.innerHTML=_dpCard('Registro de incidencias','⚠️',h);
 }
