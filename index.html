@@ -90,6 +90,8 @@ input,select,textarea,button{font-family:inherit;outline:none}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
 <style>
 #mapWrap{width:100%;height:calc(100vh - 120px);position:relative}
 #mapEl{width:100%;height:100%}
@@ -497,6 +499,20 @@ function setQF(code,key,val){
   },300);
 }
 
+// setQFtramo — debounced write + re-render (for tramo inputs to update accumulated live)
+function setQFtramo(code,key,val){
+  if(V.viewOnly){showToast('Solo lectura','var(--warn)');return}
+  var tk=code+'_'+key;
+  if(_qfTimers[tk])clearTimeout(_qfTimers[tk]);
+  _qfTimers[tk]=setTimeout(function(){
+    delete _qfTimers[tk];
+    setQualField(code,key,val);
+    showToast('✅ Guardado','var(--ac)');
+    updLastSave();
+    R();
+  },500);
+}
+
 // setQFnow — immediate write + re-render (for SI/NO buttons)
 function setQFnow(code,key,val){
   if(V.viewOnly){showToast('Solo lectura','var(--warn)');return}
@@ -579,25 +595,34 @@ function calcAccumDist(qd,px,pi,mpI,type){
   var isLargo=(type==='monofila_largo'||type==='bifila_largo');
   var noms=isLargo?DIST_NS_NOM.largo:DIST_NS_NOM.corto;
   if(pi===mpI)return null;
-  var accum=0;var complete=true;
+  var accum=0;var complete=true;var filledCount=0;var totalCount=0;
   if(pi<mpI){
     // North side: sum from pi toward MP (pi, pi+1, ..., mpI-1)
     for(var j=mpI-1;j>=pi;j--){
+      totalCount++;
       var tv=qd[px+'_'+j+'_dist_ns_tramo'];
-      if(tv!=null)accum+=tv;else complete=false;
+      if(tv!=null){accum+=parseFloat(tv);filledCount++}else complete=false;
     }
   }else{
     // South side: sum from mpI+1 to pi
     for(var j=mpI+1;j<=pi;j++){
+      totalCount++;
       var tv=qd[px+'_'+j+'_dist_ns_tramo'];
-      if(tv!=null)accum+=tv;else complete=false;
+      if(tv!=null){accum+=parseFloat(tv);filledCount++}else complete=false;
     }
   }
   var offset=Math.abs(pi-mpI);
   var nom=noms[offset]||null;
   if(!nom)return null;
-  var outTol=(complete&&accum>0)?(accum<nom-DIST_NS_TOL||accum>nom+DIST_NS_TOL):false;
-  return{accum:accum,nom:nom,offset:offset,complete:complete,outTol:outTol};
+  // Check tolerance: if complete, exact check. If partial but sum already exceeds max, flag early.
+  var outTol=false;
+  if(complete&&accum>0){
+    outTol=(accum<nom-DIST_NS_TOL||accum>nom+DIST_NS_TOL);
+  }else if(filledCount>0&&accum>0){
+    // Partial: if accumulated already exceeds nominal+tol, it's definitely out
+    outTol=(accum>nom+DIST_NS_TOL);
+  }
+  return{accum:accum,nom:nom,offset:offset,complete:complete,outTol:outTol,filledCount:filledCount,totalCount:totalCount};
 }
 
 var COMP=[
@@ -1417,25 +1442,54 @@ function rQualTracker(a){
           if(viewOnly){
             h+='<div style="margin-top:6px;padding:10px;border-radius:8px;background:var(--bg);font-size:16px;font-weight:600;color:'+(outTol?'var(--no)':'var(--tx)')+'">'+(v!=null?v+' '+f.unit:'—')+'</div>';
           }else{
-            h+='<input class="inp" type="number" step="any" value="'+(v!=null?v:'')+'" onchange="setQF(\''+code+'\',\''+k+'\',parseFloat(this.value)||null)" style="margin-top:6px;height:40px;font-size:16px;'+(outTol?'border-color:var(--no);color:var(--no)':'')+'" placeholder="'+f.unit+'">';
+            var saveFn=f.isTramo?'setQFtramo':'setQF';
+            h+='<input class="inp" type="number" step="any" value="'+(v!=null?v:'')+'" onchange="'+saveFn+'(\''+code+'\',\''+k+'\',parseFloat(this.value)||null)" style="margin-top:6px;height:40px;font-size:16px;'+(outTol?'border-color:var(--no);color:var(--no)':'')+'" placeholder="'+f.unit+'">';
           }
           if(tolLabel)h+='<div style="font-size:9px;color:var(--tx3);margin-top:4px">'+tolLabel+'</div>';
           // Show accumulated distance for tramo fields
           if(f.isTramo){
             var ad=calcAccumDist(qd,px,pi,mpI,m.type);
             if(ad){
-              var adColor=!ad.complete?'var(--td)':ad.outTol?'var(--no)':'var(--ac)';
-              h+='<div style="margin-top:6px;padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid '+(ad.outTol?'var(--no)':'var(--bd)');
-              h+=';display:flex;justify-content:space-between;align-items:center">';
-              h+='<div><div style="font-size:10px;color:var(--td)">Dist. acumulada a MP</div>';
-              h+='<div style="font-size:16px;font-weight:700;color:'+adColor+'">'+(ad.complete&&ad.accum>0?ad.accum.toLocaleString('es-ES')+' mm':'—')+'</div></div>';
-              h+='<div style="text-align:right"><div style="font-size:10px;color:var(--td)">Nominal ±'+DIST_NS_TOL+'</div>';
-              h+='<div style="font-size:14px;font-weight:600;color:var(--td)">'+ad.nom.toLocaleString('es-ES')+' mm</div>';
-              if(ad.complete&&ad.accum>0){
-                var diff=ad.accum-ad.nom;
-                h+='<div style="font-size:10px;font-weight:700;color:'+adColor+'">'+(diff>=0?'+':'')+diff+' mm '+(ad.outTol?'⚠️':'✅')+'</div>';
+              var adColor=ad.outTol?'var(--no)':(ad.complete?'var(--ac)':'var(--warn)');
+              var accumVal=ad.accum>0?ad.accum:0;
+              h+='<div style="margin-top:8px;padding:10px;border-radius:10px;background:var(--bg);border:1px solid '+(ad.outTol?'var(--no)':'var(--bd)');
+              h+='">';
+              // Two-column layout: tramo summary + accumulated
+              h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+              // Left: Tramo value summary
+              h+='<div style="padding:6px 8px;border-radius:8px;background:var(--sf)">';
+              h+='<div style="font-size:9px;color:var(--td);font-weight:600;text-transform:uppercase;letter-spacing:.3px">Tramo</div>';
+              h+='<div style="font-size:18px;font-weight:700;color:'+(outTol?'var(--no)':'var(--tx)')+'">'+(v!=null?v.toLocaleString('es-ES'):'—')+'<span style="font-size:10px;color:var(--td)"> mm</span></div>';
+              if(dynTol)h+='<div style="font-size:9px;color:var(--tx3)">Nom: '+dynTol[0]+'–'+dynTol[1]+'</div>';
+              h+='</div>';
+              // Right: Accumulated to MP
+              h+='<div style="padding:6px 8px;border-radius:8px;background:var(--sf);border:1px solid '+(ad.outTol?'var(--no)':'transparent')+'">';
+              h+='<div style="font-size:9px;color:var(--td);font-weight:600;text-transform:uppercase;letter-spacing:.3px">Acumulada a MP</div>';
+              h+='<div style="font-size:18px;font-weight:700;color:'+adColor+'">'+(accumVal>0?accumVal.toLocaleString('es-ES'):'—')+'<span style="font-size:10px;color:var(--td)"> mm</span></div>';
+              h+='<div style="font-size:9px;color:var(--tx3)">Nom: '+ad.nom.toLocaleString('es-ES')+'±'+DIST_NS_TOL+'</div>';
+              h+='</div>';
+              h+='</div>';
+              // Deviation bar
+              if(accumVal>0){
+                var diff=accumVal-ad.nom;
+                if(ad.complete){
+                  h+='<div style="margin-top:6px;display:flex;align-items:center;justify-content:center;gap:6px">';
+                  h+='<span style="font-size:11px;font-weight:700;color:'+adColor+'">'+(diff>=0?'+':'')+diff+' mm</span>';
+                  h+='<span style="font-size:11px">'+(ad.outTol?'⚠️ Fuera tol.':'✅ OK')+'</span>';
+                  h+='</div>';
+                }else{
+                  h+='<div style="margin-top:6px;text-align:center">';
+                  if(ad.outTol){
+                    h+='<div style="font-size:11px;font-weight:700;color:var(--no)">⚠️ Ya supera nominal+'+(DIST_NS_TOL)+' ('+(diff>=0?'+':'')+diff+' mm) — faltan '+( ad.totalCount-ad.filledCount)+' tramos</div>';
+                  }else{
+                    h+='<div style="font-size:9px;color:var(--warn)">⏳ Parcial ('+ad.filledCount+'/'+ad.totalCount+' tramos) — '+(diff>=0?'+':'')+diff+' mm</div>';
+                  }
+                  h+='</div>';
+                }
+              }else{
+                h+='<div style="margin-top:4px;font-size:9px;color:var(--tx3);text-align:center">Introduce tramos para ver la acumulada</div>';
               }
-              h+='</div></div>';
+              h+='</div>';
             }
           }
           h+='</div>';
@@ -1513,7 +1567,7 @@ function rQualTracker(a){
 // RESUMEN
 function rResumen(a){
   var pvs=[...new Set(Object.values(MASTER_DATA).map(function(d){return d.pv}))].sort(function(a2,b){return a2-b});
-  var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'modesel\';R()">←</button><div><h1>📊 Resumen</h1><div class="sub">Construcción + Calidad</div></div></div>';
+  var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'modesel\';R()">←</button><div><h1>📊 Resumen</h1><div class="sub">Construcción + Calidad</div></div><div class="hdr-r"><button class="btn-icon" onclick="exportAllExcel()" title="Exportar todo a Excel" style="font-size:13px;color:var(--ac)">📥</button></div></div>';
   h+='<div class="cnt" style="padding-top:14px">';
   h+='<select class="sel" id="resPv" onchange="V.resPv=parseInt(this.value);renderResumen()"><option value="">Selecciona PV</option>';
   pvs.forEach(function(p){h+='<option value="'+p+'"'+(V.resPv===p?' selected':'')+'>PV'+String(p).padStart(2,'0')+'</option>'});
@@ -1607,10 +1661,494 @@ function renderResumen(){
       
       h+='</div>';
     });
+    // Export button for selected PV
+    h+='<button onclick="exportPVExcel('+pv+')" class="btn btn-ghost" style="margin-top:10px;padding:12px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px">📥 Exportar PV'+String(pv).padStart(2,'0')+' (Alturas / Checklist)</button>';
     el.innerHTML=h;
   }).catch(function(err){
     el.innerHTML='<div style="padding:20px;text-align:center;color:var(--no)">Error: '+err.message+'</div>';
   });
+}
+
+// ============================================================
+// EXPORT EXCEL — Template-based (preserves exact format)
+// ============================================================
+// Template URLs (hosted on GitHub Pages alongside the app)
+var TPL_BASE=(function(){var s=document.currentScript?document.currentScript.src:location.href;return s.substring(0,s.lastIndexOf('/')+1)})();
+var TPL_ALTURAS='templates/plantilla_alturas.xlsx';
+var TPL_CHECKLIST='templates/plantilla_checklist.xlsx';
+
+// Pilar name mapping for alturas Excel: app index → pilar name in Excel
+var PILAR_NAMES_LARGO_M=['4n','3n','2n','1n','MP','1s','2s','3s','4s'];
+var PILAR_NAMES_LARGO_C=['4n','3n','2n','1n','MP-FC','1s','2s','3s','4s'];
+var PILAR_NAMES_CORTO_M=['2n','1n','MP','1s','2s'];
+var PILAR_NAMES_CORTO_C=['2n','1n','MP-FC','1s','2s'];
+
+// Nominal length: 3280 for MP/MP-FC, 3255 for others
+function getNomLen(pName){return(pName==='MP'||pName==='MP-FC')?3280:3255}
+
+// Excel column for pilar index in checklist template
+// Largo: 9 pilars → cols G(7) to O(15)
+// Corto: 5 pilars → cols I(9) to M(13)
+function pilarCol(type,idx){
+  var isLargo=(type==='bifila_largo'||type==='monofila_largo');
+  return isLargo?(7+idx):(9+idx);
+}
+
+// Mediciones row mapping: field_id → {motor_row, conducida_row}
+var MED_ROWS={
+  altura:{m:31,c:57},vert_ns:{m:32,c:58},vert_eo:{m:33,c:59},
+  torsion:{m:34,c:60},desv_eo:{m:35,c:61},desv_altura:{m:36,c:62}
+};
+// Distancia N-S is special (accumulated): motor row 37, conducida row 63
+
+// Comprobaciones row mapping
+var COMP_IDS=['galvanizado','golpes','entalladura','pliegue','cabezas','corte',
+  'mecanizados','orientacion','perfil','relleno','oxidacion','socavones',
+  'cimentacion','zanjas','centrado','diametro'];
+// Motor: rows 39-54 (39+i), Conducida: rows 65-80 (65+i)
+
+// ── Helper: fetch template as ArrayBuffer ──
+function fetchTemplate(url){
+  return fetch(TPL_BASE+url).then(function(r){
+    if(!r.ok)throw new Error('No se pudo descargar plantilla: '+r.status);
+    return r.arrayBuffer();
+  });
+}
+
+// ── Helper: trigger download of Blob ──
+function dlBlob(blob,name){
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href)},100);
+}
+
+// ── Helper: calculate accumulated distance N-S from tramo measurements ──
+function calcAccumForExport(qd,px,piIdx,mpIdx,type){
+  var isLargo=(type==='monofila_largo'||type==='bifila_largo');
+  if(piIdx===mpIdx)return null;
+  var accum=0;
+  if(piIdx<mpIdx){
+    for(var j=mpIdx-1;j>=piIdx;j--){
+      var tv=qd[px+'_'+j+'_dist_ns_tramo'];
+      if(tv!=null)accum+=parseFloat(tv);else return null;
+    }
+  }else{
+    for(var j=mpIdx+1;j<=piIdx;j++){
+      var tv=qd[px+'_'+j+'_dist_ns_tramo'];
+      if(tv!=null)accum+=parseFloat(tv);else return null;
+    }
+  }
+  return accum>0?accum:null;
+}
+
+// ============================================================
+// EXPORT 1: ALTURAS (XXX-PV_nn-sub.xlsx)
+// Uses SheetJS — preserves conditional formatting + formulas
+// ============================================================
+function exportAlturas(pv,sub){
+  showToast('⏳ Generando alturas...','var(--info)');
+  Promise.all([
+    fetchTemplate(TPL_ALTURAS),
+    db.ref('construction').once('value')
+  ]).then(function(results){
+    var buf=results[0];
+    var conAll=results[1].val()||{};
+    var wb=XLSX.read(buf,{type:'array'});
+    var ws=wb.Sheets[' List'];
+    if(!ws){showToast('❌ Hoja " List" no encontrada en plantilla','var(--no)');return}
+
+    // Clear existing data rows (row 16 onwards = 0-indexed row 15)
+    var range=XLSX.utils.decode_range(ws['!ref']);
+    for(var r=15;r<=range.e.r;r++){
+      for(var c=2;c<=12;c++){
+        delete ws[XLSX.utils.encode_cell({r:r,c:c})];
+      }
+    }
+
+    // Get trackers for this PV+sub
+    var codes=Object.keys(MASTER_DATA).filter(function(code){
+      var d=MASTER_DATA[code];
+      return d.pv===pv&&(sub===0||d.sub===sub);
+    }).sort();
+
+    var pvSub=pv+'/'+(sub||0);
+    var row=15; // 0-indexed
+
+    codes.forEach(function(code){
+      var d=MASTER_DATA[code];
+      var con=conAll[fbCode(code)]||conAll[code]||{};
+      var cfg=PCFG[d.type];if(!cfg)return;
+      var isLargo=(d.type==='bifila_largo'||d.type==='monofila_largo');
+      var pNamesM=isLargo?PILAR_NAMES_LARGO_M:PILAR_NAMES_CORTO_M;
+      var pNamesC=isLargo?PILAR_NAMES_LARGO_C:PILAR_NAMES_CORTO_C;
+
+      // Motor pilars
+      cfg.motor.forEach(function(pLabel,i){
+        var pName=pNamesM[i];
+        var altura=con['fm_'+i+'_profundidad'];
+        if(altura==null)altura='';
+        var nom=getNomLen(pName);
+        var R=row+1; // 1-indexed for formulas
+        ws[XLSX.utils.encode_cell({r:row,c:2})]={v:pvSub,t:'s'};
+        ws[XLSX.utils.encode_cell({r:row,c:3})]={v:d.num,t:'n'};
+        ws[XLSX.utils.encode_cell({r:row,c:4})]={v:pName,t:'s'};
+        ws[XLSX.utils.encode_cell({r:row,c:5})]={v:'Motora',t:'s'};
+        if(altura!=='')ws[XLSX.utils.encode_cell({r:row,c:6})]={v:parseFloat(altura),t:'n'};
+        ws[XLSX.utils.encode_cell({r:row,c:9})]={v:nom,t:'n'};
+        ws[XLSX.utils.encode_cell({r:row,c:10})]={f:'+J'+R+'-G'+R};
+        ws[XLSX.utils.encode_cell({r:row,c:11})]={v:1800,t:'n'};
+        ws[XLSX.utils.encode_cell({r:row,c:12})]={f:'+K'+R+'/L'+R,z:'0.00%'};
+        row++;
+      });
+
+      // Conducida pilars (if bifila)
+      if(cfg.conducida){
+        cfg.conducida.forEach(function(pLabel,i){
+          var pName=pNamesC[i];
+          var altura=con['fc_'+i+'_profundidad'];
+          if(altura==null)altura='';
+          var nom=getNomLen(pName);
+          var R=row+1;
+          ws[XLSX.utils.encode_cell({r:row,c:2})]={v:pvSub,t:'s'};
+          ws[XLSX.utils.encode_cell({r:row,c:3})]={v:d.num,t:'n'};
+          ws[XLSX.utils.encode_cell({r:row,c:4})]={v:pName,t:'s'};
+          ws[XLSX.utils.encode_cell({r:row,c:5})]={v:'Conducida',t:'s'};
+          if(altura!=='')ws[XLSX.utils.encode_cell({r:row,c:6})]={v:parseFloat(altura),t:'n'};
+          ws[XLSX.utils.encode_cell({r:row,c:9})]={v:nom,t:'n'};
+          ws[XLSX.utils.encode_cell({r:row,c:10})]={f:'+J'+R+'-G'+R};
+          ws[XLSX.utils.encode_cell({r:row,c:11})]={v:1800,t:'n'};
+          ws[XLSX.utils.encode_cell({r:row,c:12})]={f:'+K'+R+'/L'+R,z:'0.00%'};
+          row++;
+        });
+      }
+    });
+
+    // Update sheet range
+    ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(row,20),c:12}});
+
+    var out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+    var blob=new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    dlBlob(blob,'XXX-PV_'+String(pv).padStart(2,'0')+'-'+(sub||'ALL')+'.xlsx');
+    showToast('✅ Alturas exportadas','var(--ac)');
+  }).catch(function(err){
+    showToast('❌ Error: '+err.message,'var(--no)');
+    console.error(err);
+  });
+}
+
+// ============================================================
+// EXPORT 2: CHECKLIST (ATALAYA_CHECKLIST_PV_nn_SUBCAMPO_x.xlsx)
+// Uses JSZip — manipulates xlsx XML to preserve exact format
+// ============================================================
+function exportChecklist(pv,sub){
+  showToast('⏳ Generando checklist...','var(--info)');
+  Promise.all([
+    fetchTemplate(TPL_CHECKLIST),
+    db.ref('quality').once('value')
+  ]).then(function(results){
+    var buf=results[0];
+    var qualAll=results[1].val()||{};
+
+    return JSZip.loadAsync(buf).then(function(zip){
+      // Get trackers for this PV+sub
+      var codes=Object.keys(MASTER_DATA).filter(function(code){
+        var d=MASTER_DATA[code];
+        return d.pv===pv&&(sub===0||d.sub===sub);
+      }).sort();
+
+      if(codes.length===0){showToast('⚠️ No hay trackers para PV'+pv+' sub '+sub,'var(--warn)');return}
+
+      // Read the first sheet XML as template
+      var sheetFiles=[];
+      zip.folder('xl/worksheets').forEach(function(path,file){
+        if(path.match(/^sheet\d+\.xml$/))sheetFiles.push(path);
+      });
+      sheetFiles.sort();
+
+      return zip.file('xl/worksheets/'+sheetFiles[0]).async('string').then(function(tplXml){
+        return zip.file('xl/workbook.xml').async('string').then(function(wbXml){
+          return zip.file('[Content_Types].xml').async('string').then(function(ctXml){
+            return zip.file('xl/_rels/workbook.xml.rels').async('string').then(function(relsXml){
+
+              // Remove old sheets
+              sheetFiles.forEach(function(sf){zip.remove('xl/worksheets/'+sf)});
+
+              // Parse workbook.xml to find sheet references
+              var parser=new DOMParser();
+              var ser=new XMLSerializer();
+
+              // Build new sheets
+              var newSheetEntries=[];
+              var pvZona=pv+'/'+String(sub||0).padStart(2,'0')+'/';
+
+              codes.forEach(function(code,idx){
+                var d=MASTER_DATA[code];
+                var qd=qualAll[fbCode(code)]||qualAll[code]||{};
+                var cfg=PCFG[d.type];if(!cfg)return;
+                var isLargo=(d.type==='bifila_largo'||d.type==='monofila_largo');
+                var hasCond=(cfg.conducida!=null);
+                var mpIdx=isLargo?4:2; // MP index in pilar array
+                var sheetName=String(d.num);
+
+                // Parse template XML
+                var doc=parser.parseFromString(tplXml,'application/xml');
+                var ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+                var rows=doc.getElementsByTagNameNS(ns,'row');
+
+                // Helper: set cell value in XML
+                function setCell(rowNum,colNum,value,isNum){
+                  // Find or create row
+                  var targetRow=null;
+                  for(var ri=0;ri<rows.length;ri++){
+                    if(parseInt(rows[ri].getAttribute('r'))===rowNum){targetRow=rows[ri];break}
+                  }
+                  if(!targetRow)return;
+                  var colLetter=String.fromCharCode(64+colNum); // A=1,B=2...P=16,Q=17
+                  if(colNum>26)colLetter=String.fromCharCode(64+Math.floor((colNum-1)/26))+String.fromCharCode(65+(colNum-1)%26);
+                  var addr=colLetter+rowNum;
+                  var cells=targetRow.getElementsByTagNameNS(ns,'c');
+                  var targetCell=null;
+                  for(var ci=0;ci<cells.length;ci++){
+                    if(cells[ci].getAttribute('r')===addr){targetCell=cells[ci];break}
+                  }
+                  if(!targetCell){
+                    // Create new cell
+                    targetCell=doc.createElementNS(ns,'c');
+                    targetCell.setAttribute('r',addr);
+                    targetRow.appendChild(targetCell);
+                  }
+                  // Remove existing value
+                  var oldV=targetCell.getElementsByTagNameNS(ns,'v');
+                  while(oldV.length>0)targetCell.removeChild(oldV[0]);
+                  var oldIs=targetCell.getElementsByTagNameNS(ns,'is');
+                  while(oldIs.length>0)targetCell.removeChild(oldIs[0]);
+
+                  if(value===''||value==null){
+                    targetCell.removeAttribute('t');
+                    return;
+                  }
+                  if(isNum){
+                    targetCell.removeAttribute('t');
+                    var v=doc.createElementNS(ns,'v');
+                    v.textContent=String(value);
+                    targetCell.appendChild(v);
+                  }else{
+                    targetCell.setAttribute('t','inlineStr');
+                    var is=doc.createElementNS(ns,'is');
+                    var t=doc.createElementNS(ns,'t');
+                    t.textContent=String(value);
+                    is.appendChild(t);
+                    targetCell.appendChild(is);
+                  }
+                }
+
+                // Fill header data
+                setCell(4,3,pvZona,false); // C4: PV/zona
+                setCell(5,3,d.num,true);   // C5: tracker number
+
+                // Fill Motor data
+                var faces=[{px:'fm',pils:cfg.motor,mRow:31,cRow:39,dRow:37,pilarOffset:0}];
+                if(hasCond){
+                  faces.push({px:'fc',pils:cfg.conducida,mRow:57,cRow:65,dRow:63,pilarOffset:0});
+                }
+
+                faces.forEach(function(face){
+                  face.pils.forEach(function(pLabel,i){
+                    var col=pilarCol(d.type,i);
+
+                    // Mediciones
+                    Object.keys(MED_ROWS).forEach(function(fid){
+                      var rowN=(face.px==='fm')?MED_ROWS[fid].m:MED_ROWS[fid].c;
+                      var val=qd[face.px+'_'+i+'_'+fid];
+                      if(val!=null){
+                        var isN=(fid==='altura'||fid==='vert_ns'||fid==='vert_eo');
+                        setCell(rowN,col,isN?parseFloat(val):val,isN);
+                      }else{
+                        setCell(rowN,col,'',false);
+                      }
+                    });
+
+                    // Distancia N-S (accumulated)
+                    var distRow=face.dRow;
+                    if(i!==mpIdx){
+                      var accum=calcAccumForExport(qd,face.px,i,mpIdx,d.type);
+                      if(accum!=null)setCell(distRow,col,accum,true);
+                      else setCell(distRow,col,'',false);
+                    }
+
+                    // Comprobaciones
+                    COMP_IDS.forEach(function(cid,ci){
+                      var rowN=face.cRow+ci;
+                      var val=qd[face.px+'_'+i+'_'+cid];
+                      if(val!=null)setCell(rowN,col,String(val),false);
+                      else setCell(rowN,col,'',false);
+                    });
+                  });
+                });
+
+                // Clear conducida data cells if monofila
+                if(!hasCond){
+                  for(var r=57;r<=80;r++){
+                    for(var cc=6;cc<=16;cc++){
+                      setCell(r,cc,'',false);
+                    }
+                  }
+                }
+
+                // Clear pilar columns that don't apply for corto
+                if(!isLargo){
+                  // Corto uses cols I-M (9-13), clear G,H,N,O (7,8,14,15)
+                  var clearCols=[7,8,14,15];
+                  var clearRows=[];
+                  for(var rr=31;rr<=54;rr++)clearRows.push(rr);
+                  for(var rr2=57;rr2<=80;rr2++)clearRows.push(rr2);
+                  clearCols.forEach(function(cc2){
+                    clearRows.forEach(function(rr3){
+                      setCell(rr3,cc2,'',false);
+                    });
+                  });
+                }
+
+                var xmlStr=ser.serializeToString(doc);
+                var sheetFile='sheet'+(idx+1)+'.xml';
+                zip.file('xl/worksheets/'+sheetFile,xmlStr);
+                newSheetEntries.push({name:sheetName,file:sheetFile,rId:'rId'+(idx+10),idx:idx+1});
+              });
+
+              // Update workbook.xml
+              var wbDoc=parser.parseFromString(wbXml,'application/xml');
+              var wbNs='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+              var sheets=wbDoc.getElementsByTagNameNS(wbNs,'sheet');
+              // Remove existing sheets
+              var sheetsParent=sheets[0]?sheets[0].parentNode:null;
+              if(sheetsParent){
+                while(sheets.length>0)sheetsParent.removeChild(sheets[0]);
+                // Add new sheets
+                var rNs='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+                newSheetEntries.forEach(function(se){
+                  var sh=wbDoc.createElementNS(wbNs,'sheet');
+                  sh.setAttribute('name',se.name);
+                  sh.setAttribute('sheetId',String(se.idx));
+                  sh.setAttributeNS(rNs,'r:id',se.rId);
+                  sheetsParent.appendChild(sh);
+                });
+              }
+              zip.file('xl/workbook.xml',ser.serializeToString(wbDoc));
+
+              // Update [Content_Types].xml
+              var ctDoc=parser.parseFromString(ctXml,'application/xml');
+              var ctNs='http://schemas.openxmlformats.org/package/2006/content-types';
+              var overrides=ctDoc.getElementsByTagNameNS(ctNs,'Override');
+              // Remove old sheet overrides
+              var toRemove=[];
+              for(var oi=0;oi<overrides.length;oi++){
+                if(overrides[oi].getAttribute('PartName').indexOf('/worksheets/sheet')>=0)
+                  toRemove.push(overrides[oi]);
+              }
+              toRemove.forEach(function(o){o.parentNode.removeChild(o)});
+              // Add new
+              var typesEl=ctDoc.documentElement;
+              newSheetEntries.forEach(function(se){
+                var ov=ctDoc.createElementNS(ctNs,'Override');
+                ov.setAttribute('PartName','/xl/worksheets/'+se.file);
+                ov.setAttribute('ContentType','application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml');
+                typesEl.appendChild(ov);
+              });
+              zip.file('[Content_Types].xml',ser.serializeToString(ctDoc));
+
+              // Update workbook.xml.rels
+              var relsDoc=parser.parseFromString(relsXml,'application/xml');
+              var relNs='http://schemas.openxmlformats.org/package/2006/relationships';
+              var rels=relsDoc.getElementsByTagNameNS(relNs,'Relationship');
+              // Remove old sheet rels
+              var toRem2=[];
+              for(var ri2=0;ri2<rels.length;ri2++){
+                if(rels[ri2].getAttribute('Target').indexOf('worksheets/sheet')>=0)
+                  toRem2.push(rels[ri2]);
+              }
+              toRem2.forEach(function(r2){r2.parentNode.removeChild(r2)});
+              // Add new
+              var relsRoot=relsDoc.documentElement;
+              newSheetEntries.forEach(function(se){
+                var rel=relsDoc.createElementNS(relNs,'Relationship');
+                rel.setAttribute('Id',se.rId);
+                rel.setAttribute('Type','http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet');
+                rel.setAttribute('Target','worksheets/'+se.file);
+                relsRoot.appendChild(rel);
+              });
+              zip.file('xl/_rels/workbook.xml.rels',ser.serializeToString(relsDoc));
+
+              return zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+            });
+          });
+        });
+      }).then(function(blob){
+        if(!blob)return;
+        var fname='ATALAYA_CHECKLIST_PV_'+String(pv).padStart(2,'0')+'_SUBCAMPO_'+(sub||'ALL')+'.xlsx';
+        dlBlob(blob,fname);
+        showToast('✅ Checklist exportado','var(--ac)');
+      });
+    });
+  }).catch(function(err){
+    showToast('❌ Error: '+err.message,'var(--no)');
+    console.error(err);
+  });
+}
+
+// ── UI: Export modal for PV+Subcampo selection ──
+function showExportModal(){
+  var pvs=[...new Set(Object.values(MASTER_DATA).map(function(d){return d.pv}))].sort(function(a,b){return a-b});
+  var h='<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px" id="export-modal" onclick="if(event.target===this)this.remove()">';
+  h+='<div style="background:var(--sf);border:1px solid var(--bd);border-radius:16px;padding:20px;width:100%;max-width:380px">';
+  h+='<div style="font-size:17px;font-weight:700;margin-bottom:14px">📥 Exportar Excel</div>';
+  h+='<div class="stitle">PV</div>';
+  h+='<select class="sel" id="exp-pv" onchange="updExpSubs()"><option value="">Selecciona PV</option>';
+  pvs.forEach(function(p){h+='<option value="'+p+'">PV'+String(p).padStart(2,'0')+'</option>'});
+  h+='</select>';
+  h+='<div class="stitle">Subcampo</div>';
+  h+='<select class="sel" id="exp-sub"><option value="0">Todos</option></select>';
+  h+='<div style="margin-top:16px;display:flex;flex-direction:column;gap:8px">';
+  h+='<button class="btn btn-primary" onclick="doExportAlturas()" style="font-size:14px">📋 Exportar Alturas (XXX-PV)</button>';
+  h+='<button class="btn btn-info" onclick="doExportChecklist()" style="font-size:14px">📝 Exportar Checklist Calidad</button>';
+  h+='<button class="btn btn-ghost" onclick="document.getElementById(\'export-modal\').remove()" style="font-size:13px">Cancelar</button>';
+  h+='</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',h);
+}
+
+function updExpSubs(){
+  var pv=parseInt(document.getElementById('exp-pv').value);
+  var sel=document.getElementById('exp-sub');
+  sel.innerHTML='<option value="0">Todos</option>';
+  if(!pv)return;
+  var subs=[...new Set(Object.values(MASTER_DATA).filter(function(d){return d.pv===pv&&d.sub>0}).map(function(d){return d.sub}))].sort(function(a,b){return a-b});
+  subs.forEach(function(s){sel.innerHTML+='<option value="'+s+'">Subcampo '+s+'</option>'});
+}
+
+function doExportAlturas(){
+  var pv=parseInt(document.getElementById('exp-pv').value);
+  var sub=parseInt(document.getElementById('exp-sub').value);
+  if(!pv){showToast('⚠️ Selecciona PV','var(--warn)');return}
+  document.getElementById('export-modal').remove();
+  exportAlturas(pv,sub);
+}
+
+function doExportChecklist(){
+  var pv=parseInt(document.getElementById('exp-pv').value);
+  var sub=parseInt(document.getElementById('exp-sub').value);
+  if(!pv){showToast('⚠️ Selecciona PV','var(--warn)');return}
+  document.getElementById('export-modal').remove();
+  exportChecklist(pv,sub);
+}
+
+// Legacy generic export (quick CSV-style)
+function exportAllExcel(){showExportModal()}
+function exportPVExcel(pv){
+  document.body.insertAdjacentHTML('beforeend','');
+  showExportModal();
+  setTimeout(function(){
+    var sel=document.getElementById('exp-pv');
+    if(sel){sel.value=pv;updExpSubs()}
+  },100);
 }
 
 // ADMIN
@@ -1624,6 +2162,7 @@ function rAdmin(a){
   h+='<div class="card"><div class="card-t">Gestión de usuarios</div><div id="admin-users"><div style="color:var(--td);font-size:12px">Cargando...</div></div></div>';
   h+='<div class="card"><div class="card-t">Herramientas</div>';
   h+='<button onclick="generateWeeklyReport()" style="display:block;width:100%;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);color:var(--warn);font-size:13px;font-weight:600;cursor:pointer;text-align:center;margin-bottom:6px">📊 Generar informe semanal (PDF)</button>';
+  h+='<button onclick="showExportModal()" style="display:block;width:100%;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);color:var(--ac);font-size:13px;font-weight:600;cursor:pointer;text-align:center;margin-bottom:6px">📥 Exportar Excel (Alturas / Checklist)</button>';
   h+='<a href="import.html" target="_blank" style="display:block;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);color:var(--info);font-size:13px;font-weight:600;text-decoration:none;text-align:center;margin-bottom:6px">📥 Importar datos v1</a>';
   h+='<a href="dashboard.html" target="_blank" style="display:block;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);color:var(--ac);font-size:13px;font-weight:600;text-decoration:none;text-align:center">📈 Dashboard</a>';
   h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">';
