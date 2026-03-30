@@ -1743,7 +1743,7 @@ function calcAccumForExport(qd,px,piIdx,mpIdx,type){
 
 // ============================================================
 // EXPORT 1: ALTURAS (XXX-PV_nn-sub.xlsx)
-// Uses SheetJS — preserves conditional formatting + formulas
+// JSZip — manipulates XML directly to preserve exact format
 // ============================================================
 function exportAlturas(pv,sub){
   showToast('⏳ Generando alturas...','var(--info)');
@@ -1753,353 +1753,300 @@ function exportAlturas(pv,sub){
   ]).then(function(results){
     var buf=results[0];
     var conAll=results[1].val()||{};
-    var wb=XLSX.read(buf,{type:'array'});
-    var ws=wb.Sheets[' List'];
-    if(!ws){showToast('❌ Hoja " List" no encontrada en plantilla','var(--no)');return}
 
-    // Clear existing data rows (row 16 onwards = 0-indexed row 15)
-    var range=XLSX.utils.decode_range(ws['!ref']);
-    for(var r=15;r<=range.e.r;r++){
-      for(var c=2;c<=12;c++){
-        delete ws[XLSX.utils.encode_cell({r:r,c:c})];
-      }
-    }
+    return JSZip.loadAsync(buf).then(function(zip){
+      return zip.file('xl/workbook.xml').async('string').then(function(wbXml){
+        return zip.file('xl/_rels/workbook.xml.rels').async('string').then(function(relsXml){
+          var parser=new DOMParser();var ser=new XMLSerializer();
+          var wbDoc=parser.parseFromString(wbXml,'application/xml');
+          var wbNs='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+          var rNs='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+          var sheets=wbDoc.getElementsByTagNameNS(wbNs,'sheet');
+          var listRId=null;
+          for(var i=0;i<sheets.length;i++){
+            var nm=sheets[i].getAttribute('name');
+            if(nm==='List'||nm===' List'){
+              listRId=sheets[i].getAttributeNS(rNs,'id')||sheets[i].getAttribute('r:id');break;
+            }
+          }
+          if(!listRId){showToast('❌ Hoja List no encontrada','var(--no)');return}
+          var relsDoc=parser.parseFromString(relsXml,'application/xml');
+          var relNs2='http://schemas.openxmlformats.org/package/2006/relationships';
+          var rels=relsDoc.getElementsByTagNameNS(relNs2,'Relationship');
+          var sheetFile=null;
+          for(var i=0;i<rels.length;i++){
+            if(rels[i].getAttribute('Id')===listRId){sheetFile=rels[i].getAttribute('Target');break}
+          }
+          if(!sheetFile){showToast('❌ Sheet file no encontrado','var(--no)');return}
+          var sheetPath='xl/'+sheetFile;
 
-    // Get trackers for this PV+sub
-    var codes=Object.keys(MASTER_DATA).filter(function(code){
-      var d=MASTER_DATA[code];
-      return d.pv===pv&&(sub===0||d.sub===sub);
-    }).sort();
+          return zip.file(sheetPath).async('string').then(function(sheetXml){
+            var doc=parser.parseFromString(sheetXml,'application/xml');
+            var ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+            var sheetData=doc.getElementsByTagNameNS(ns,'sheetData')[0];
+            var rows=sheetData.getElementsByTagNameNS(ns,'row');
 
-    var pvSub=pv+'/'+(sub||0);
-    var row=15; // 0-indexed
+            // Remove data rows >= 16
+            var toRem=[];
+            for(var ri=0;ri<rows.length;ri++){if(parseInt(rows[ri].getAttribute('r'))>=16)toRem.push(rows[ri])}
+            toRem.forEach(function(r){sheetData.removeChild(r)});
 
-    codes.forEach(function(code){
-      var d=MASTER_DATA[code];
-      var con=conAll[fbCode(code)]||conAll[code]||{};
-      var cfg=PCFG[d.type];if(!cfg)return;
-      var isLargo=(d.type==='bifila_largo'||d.type==='monofila_largo');
-      var pNamesM=isLargo?PILAR_NAMES_LARGO_M:PILAR_NAMES_CORTO_M;
-      var pNamesC=isLargo?PILAR_NAMES_LARGO_C:PILAR_NAMES_CORTO_C;
+            // Read shared strings
+            return zip.file('xl/sharedStrings.xml').async('string').then(function(ssXml){
+              var ssDoc=parser.parseFromString(ssXml,'application/xml');
+              var siEls=ssDoc.getElementsByTagNameNS(ns,'si');
+              var ssCount=siEls.length;var ssMap={};
+              for(var si=0;si<siEls.length;si++){
+                var t=siEls[si].getElementsByTagNameNS(ns,'t')[0];
+                if(t)ssMap[t.textContent]=si;
+              }
+              function addSS(str){
+                if(ssMap[str]!=null)return ssMap[str];
+                var si=ssDoc.createElementNS(ns,'si');var t=ssDoc.createElementNS(ns,'t');
+                t.textContent=str;si.appendChild(t);ssDoc.documentElement.appendChild(si);
+                var idx=ssCount;ssCount++;ssMap[str]=idx;return idx;
+              }
+              function mkCell(d2,addr,val,type){
+                var c=d2.createElementNS(ns,'c');c.setAttribute('r',addr);
+                if(type==='s'){c.setAttribute('t','s');var v=d2.createElementNS(ns,'v');v.textContent=String(addSS(String(val)));c.appendChild(v)}
+                else if(type==='n'&&val!=null&&val!==''){var v=d2.createElementNS(ns,'v');v.textContent=String(val);c.appendChild(v)}
+                else if(type==='f'){var f=d2.createElementNS(ns,'f');f.textContent=val;c.appendChild(f)}
+                return c;
+              }
 
-      // Motor pilars
-      cfg.motor.forEach(function(pLabel,i){
-        var pName=pNamesM[i];
-        var altura=con['fm_'+i+'_profundidad'];
-        if(altura==null)altura='';
-        var nom=getNomLen(pName);
-        var R=row+1; // 1-indexed for formulas
-        ws[XLSX.utils.encode_cell({r:row,c:2})]={v:pvSub,t:'s'};
-        ws[XLSX.utils.encode_cell({r:row,c:3})]={v:d.num,t:'n'};
-        ws[XLSX.utils.encode_cell({r:row,c:4})]={v:pName,t:'s'};
-        ws[XLSX.utils.encode_cell({r:row,c:5})]={v:'Motora',t:'s'};
-        if(altura!=='')ws[XLSX.utils.encode_cell({r:row,c:6})]={v:parseFloat(altura),t:'n'};
-        ws[XLSX.utils.encode_cell({r:row,c:9})]={v:nom,t:'n'};
-        ws[XLSX.utils.encode_cell({r:row,c:10})]={f:'+J'+R+'-G'+R};
-        ws[XLSX.utils.encode_cell({r:row,c:11})]={v:1800,t:'n'};
-        ws[XLSX.utils.encode_cell({r:row,c:12})]={f:'+K'+R+'/L'+R,z:'0.00%'};
-        row++;
-      });
+              var codes=Object.keys(MASTER_DATA).filter(function(code){var d=MASTER_DATA[code];return d.pv===pv&&(sub===0||d.sub===sub)}).sort();
+              var pvSub=pv+'/'+(sub||0);var rowNum=16;
 
-      // Conducida pilars (if bifila)
-      if(cfg.conducida){
-        cfg.conducida.forEach(function(pLabel,i){
-          var pName=pNamesC[i];
-          var altura=con['fc_'+i+'_profundidad'];
-          if(altura==null)altura='';
-          var nom=getNomLen(pName);
-          var R=row+1;
-          ws[XLSX.utils.encode_cell({r:row,c:2})]={v:pvSub,t:'s'};
-          ws[XLSX.utils.encode_cell({r:row,c:3})]={v:d.num,t:'n'};
-          ws[XLSX.utils.encode_cell({r:row,c:4})]={v:pName,t:'s'};
-          ws[XLSX.utils.encode_cell({r:row,c:5})]={v:'Conducida',t:'s'};
-          if(altura!=='')ws[XLSX.utils.encode_cell({r:row,c:6})]={v:parseFloat(altura),t:'n'};
-          ws[XLSX.utils.encode_cell({r:row,c:9})]={v:nom,t:'n'};
-          ws[XLSX.utils.encode_cell({r:row,c:10})]={f:'+J'+R+'-G'+R};
-          ws[XLSX.utils.encode_cell({r:row,c:11})]={v:1800,t:'n'};
-          ws[XLSX.utils.encode_cell({r:row,c:12})]={f:'+K'+R+'/L'+R,z:'0.00%'};
-          row++;
+              codes.forEach(function(code){
+                var d=MASTER_DATA[code];var con=conAll[fbCode(code)]||conAll[code]||{};
+                var cfg=PCFG[d.type];if(!cfg)return;
+                var isLargo=(d.type==='bifila_largo'||d.type==='monofila_largo');
+                var pNamesM=isLargo?PILAR_NAMES_LARGO_M:PILAR_NAMES_CORTO_M;
+                var pNamesC=isLargo?PILAR_NAMES_LARGO_C:PILAR_NAMES_CORTO_C;
+                function addR(pName,fila,profKey){
+                  var alt=con[profKey];var nom=getNomLen(pName);var R=String(rowNum);
+                  var rw=doc.createElementNS(ns,'row');rw.setAttribute('r',R);
+                  rw.appendChild(mkCell(doc,'C'+R,pvSub,'s'));
+                  rw.appendChild(mkCell(doc,'D'+R,d.num,'n'));
+                  rw.appendChild(mkCell(doc,'E'+R,pName,'s'));
+                  rw.appendChild(mkCell(doc,'F'+R,fila,'s'));
+                  if(alt!=null)rw.appendChild(mkCell(doc,'G'+R,parseFloat(alt),'n'));
+                  rw.appendChild(mkCell(doc,'J'+R,nom,'n'));
+                  rw.appendChild(mkCell(doc,'K'+R,'+J'+R+'-G'+R,'f'));
+                  rw.appendChild(mkCell(doc,'L'+R,1800,'n'));
+                  rw.appendChild(mkCell(doc,'M'+R,'+K'+R+'/L'+R,'f'));
+                  sheetData.appendChild(rw);rowNum++;
+                }
+                cfg.motor.forEach(function(pL,i){addR(pNamesM[i],'Motora','fm_'+i+'_profundidad')});
+                if(cfg.conducida){cfg.conducida.forEach(function(pL,i){addR(pNamesC[i],'Conducida','fc_'+i+'_profundidad')})}
+              });
+
+              ssDoc.documentElement.setAttribute('count',String(ssCount));
+              ssDoc.documentElement.setAttribute('uniqueCount',String(ssCount));
+              zip.file(sheetPath,ser.serializeToString(doc));
+              zip.file('xl/sharedStrings.xml',ser.serializeToString(ssDoc));
+              return zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+            });
+          });
         });
-      }
+      });
+    }).then(function(blob){
+      if(!blob)return;
+      dlBlob(blob,'XXX-PV_'+String(pv).padStart(2,'0')+'-'+(sub||'ALL')+'.xlsx');
+      showToast('✅ Alturas exportadas','var(--ac)');
     });
-
-    // Update sheet range
-    ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(row,20),c:12}});
-
-    var out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
-    var blob=new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-    dlBlob(blob,'XXX-PV_'+String(pv).padStart(2,'0')+'-'+(sub||'ALL')+'.xlsx');
-    showToast('✅ Alturas exportadas','var(--ac)');
-  }).catch(function(err){
-    showToast('❌ Error: '+err.message,'var(--no)');
-    console.error(err);
-  });
+  }).catch(function(err){showToast('❌ Error: '+err.message,'var(--no)');console.error(err)});
 }
 
 // ============================================================
 // EXPORT 2: CHECKLIST (ATALAYA_CHECKLIST_PV_nn_SUBCAMPO_x.xlsx)
-// Uses JSZip — manipulates xlsx XML to preserve exact format
+// JSZip — one tab per tracker, copies template per sheet
 // ============================================================
 function exportChecklist(pv,sub){
   showToast('⏳ Generando checklist...','var(--info)');
   Promise.all([
     fetchTemplate(TPL_CHECKLIST),
-    db.ref('quality').once('value'),
-    db.ref('construction').once('value')
+    db.ref('quality').once('value')
   ]).then(function(results){
-    var buf=results[0];
-    var qualAll=results[1].val()||{};
-    var conAll=results[2].val()||{};
+    var buf=results[0];var qualAll=results[1].val()||{};
+    var codes=Object.keys(MASTER_DATA).filter(function(code){var d=MASTER_DATA[code];return d.pv===pv&&(sub===0||d.sub===sub)}).sort();
+    if(codes.length===0){showToast('⚠️ No hay trackers','var(--warn)');return}
 
-    return JSZip.loadAsync(buf).then(function(zip){
-      // Get trackers for this PV+sub
-      var codes=Object.keys(MASTER_DATA).filter(function(code){
-        var d=MASTER_DATA[code];
-        return d.pv===pv&&(sub===0||d.sub===sub);
-      }).sort();
+    return JSZip.loadAsync(buf).then(function(tplZip){
+      return tplZip.file('xl/workbook.xml').async('string').then(function(wbXml){
+        return tplZip.file('xl/_rels/workbook.xml.rels').async('string').then(function(relsXml){
+          return tplZip.file('[Content_Types].xml').async('string').then(function(ctXml){
+            var parser=new DOMParser();var ser=new XMLSerializer();
+            var relNs='http://schemas.openxmlformats.org/package/2006/relationships';
+            var ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 
-      if(codes.length===0){showToast('⚠️ No hay trackers para PV'+pv+' sub '+sub,'var(--warn)');return}
+            // Find first sheet file
+            var relsDoc0=parser.parseFromString(relsXml,'application/xml');
+            var allRels=relsDoc0.getElementsByTagNameNS(relNs,'Relationship');
+            var sheetTargets=[];var nonSheetRelIds=[];
+            for(var i=0;i<allRels.length;i++){
+              if(allRels[i].getAttribute('Type').indexOf('worksheet')>=0)
+                sheetTargets.push(allRels[i].getAttribute('Target'));
+              else nonSheetRelIds.push(allRels[i].getAttribute('Id'));
+            }
+            sheetTargets.sort();
+            var tplSheetPath='xl/'+sheetTargets[0];
 
-      // Read the first sheet XML as template
-      var sheetFiles=[];
-      zip.folder('xl/worksheets').forEach(function(path,file){
-        if(path.match(/^sheet\d+\.xml$/))sheetFiles.push(path);
-      });
-      sheetFiles.sort();
-
-      return zip.file('xl/worksheets/'+sheetFiles[0]).async('string').then(function(tplXml){
-        return zip.file('xl/workbook.xml').async('string').then(function(wbXml){
-          return zip.file('[Content_Types].xml').async('string').then(function(ctXml){
-            return zip.file('xl/_rels/workbook.xml.rels').async('string').then(function(relsXml){
-
-              // Remove old sheets
-              sheetFiles.forEach(function(sf){zip.remove('xl/worksheets/'+sf)});
-
-              // Parse workbook.xml to find sheet references
-              var parser=new DOMParser();
-              var ser=new XMLSerializer();
-
-              // Build new sheets
-              var newSheetEntries=[];
-              var pvZona=pv+'/'+String(sub||0).padStart(2,'0')+'/';
-
-              codes.forEach(function(code,idx){
-                var d=MASTER_DATA[code];
-                var qd=qualAll[fbCode(code)]||qualAll[code]||{};
-                var cfg=PCFG[d.type];if(!cfg)return;
-                var isLargo=(d.type==='bifila_largo'||d.type==='monofila_largo');
-                var hasCond=(cfg.conducida!=null);
-                var mpIdx=isLargo?4:2; // MP index in pilar array
-                var sheetName=String(d.num);
-
-                // Parse template XML
-                var doc=parser.parseFromString(tplXml,'application/xml');
-                var ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-                var rows=doc.getElementsByTagNameNS(ns,'row');
-
-                // Helper: set cell value in XML
-                function setCell(rowNum,colNum,value,isNum){
-                  // Find or create row
-                  var targetRow=null;
-                  for(var ri=0;ri<rows.length;ri++){
-                    if(parseInt(rows[ri].getAttribute('r'))===rowNum){targetRow=rows[ri];break}
-                  }
-                  if(!targetRow)return;
-                  var colLetter=String.fromCharCode(64+colNum); // A=1,B=2...P=16,Q=17
-                  if(colNum>26)colLetter=String.fromCharCode(64+Math.floor((colNum-1)/26))+String.fromCharCode(65+(colNum-1)%26);
-                  var addr=colLetter+rowNum;
-                  var cells=targetRow.getElementsByTagNameNS(ns,'c');
-                  var targetCell=null;
-                  for(var ci=0;ci<cells.length;ci++){
-                    if(cells[ci].getAttribute('r')===addr){targetCell=cells[ci];break}
-                  }
-                  if(!targetCell){
-                    // Create new cell
-                    targetCell=doc.createElementNS(ns,'c');
-                    targetCell.setAttribute('r',addr);
-                    targetRow.appendChild(targetCell);
-                  }
-                  // Remove existing value
-                  var oldV=targetCell.getElementsByTagNameNS(ns,'v');
-                  while(oldV.length>0)targetCell.removeChild(oldV[0]);
-                  var oldIs=targetCell.getElementsByTagNameNS(ns,'is');
-                  while(oldIs.length>0)targetCell.removeChild(oldIs[0]);
-
-                  if(value===''||value==null){
-                    targetCell.removeAttribute('t');
-                    return;
-                  }
-                  if(isNum){
-                    targetCell.removeAttribute('t');
-                    var v=doc.createElementNS(ns,'v');
-                    v.textContent=String(value);
-                    targetCell.appendChild(v);
-                  }else{
-                    targetCell.setAttribute('t','inlineStr');
-                    var is=doc.createElementNS(ns,'is');
-                    var t=doc.createElementNS(ns,'t');
-                    t.textContent=String(value);
-                    is.appendChild(t);
-                    targetCell.appendChild(is);
+            return tplZip.file(tplSheetPath).async('string').then(function(tplXml){
+              // Read shared strings
+              var hasSS=tplZip.file('xl/sharedStrings.xml');
+              return (hasSS?hasSS.async('string'):Promise.resolve(null)).then(function(ssXml){
+                var ssDoc=ssXml?parser.parseFromString(ssXml,'application/xml'):null;
+                var ssCount=0;var ssMap={};
+                if(ssDoc){
+                  var siEls=ssDoc.getElementsByTagNameNS(ns,'si');
+                  ssCount=siEls.length;
+                  for(var si=0;si<siEls.length;si++){
+                    var t=siEls[si].getElementsByTagNameNS(ns,'t')[0];
+                    if(t)ssMap[t.textContent]=si;
                   }
                 }
-
-                // Fill header data
-                setCell(4,3,pvZona,false); // C4: PV/zona
-                setCell(5,3,d.num,true);   // C5: tracker number
-                // Coordinates: D6 (X=UTM easting), N6 (Y=UTM northing) from master
-                if(d.mx)setCell(6,4,d.mx,true);
-                if(d.my)setCell(6,14,d.my,true);
-
-                // Fill Motor data
-                var faces=[{px:'fm',pils:cfg.motor,mRow:31,cRow:39,dRow:37,pilarOffset:0}];
-                if(hasCond){
-                  faces.push({px:'fc',pils:cfg.conducida,mRow:57,cRow:65,dRow:63,pilarOffset:0});
+                function addSS(str){
+                  if(ssMap[str]!=null)return ssMap[str];
+                  if(!ssDoc){ssDoc=parser.parseFromString('<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"/>','application/xml')}
+                  var si=ssDoc.createElementNS(ns,'si');var t=ssDoc.createElementNS(ns,'t');
+                  t.textContent=str;si.appendChild(t);ssDoc.documentElement.appendChild(si);
+                  var idx=ssCount;ssCount++;ssMap[str]=idx;return idx;
                 }
 
-                faces.forEach(function(face){
-                  face.pils.forEach(function(pLabel,i){
-                    var col=pilarCol(d.type,i);
-
-                    // Mediciones
-                    Object.keys(MED_ROWS).forEach(function(fid){
-                      var rowN=(face.px==='fm')?MED_ROWS[fid].m:MED_ROWS[fid].c;
-                      var val=qd[face.px+'_'+i+'_'+fid];
-                      if(val!=null){
-                        var isN=(fid==='altura'||fid==='vert_ns'||fid==='vert_eo');
-                        setCell(rowN,col,isN?parseFloat(val):val,isN);
-                      }else{
-                        setCell(rowN,col,'',false);
-                      }
-                    });
-
-                    // Distancia N-S (accumulated)
-                    var distRow=face.dRow;
-                    if(i!==mpIdx){
-                      var accum=calcAccumForExport(qd,face.px,i,mpIdx,d.type);
-                      if(accum!=null)setCell(distRow,col,accum,true);
-                      else setCell(distRow,col,'',false);
-                    }
-
-                    // Comprobaciones
-                    COMP_IDS.forEach(function(cid,ci){
-                      var rowN=face.cRow+ci;
-                      var val=qd[face.px+'_'+i+'_'+cid];
-                      if(val!=null)setCell(rowN,col,String(val),false);
-                      else setCell(rowN,col,'',false);
-                    });
-                  });
+                // Build new zip — copy all non-sheet files
+                var outZip=new JSZip();var copyP=[];
+                tplZip.forEach(function(path,entry){
+                  if(path.match(/^xl\/worksheets\/sheet\d+\.xml$/))return;
+                  if(path==='xl/workbook.xml'||path==='xl/_rels/workbook.xml.rels'||path==='[Content_Types].xml'||path==='xl/sharedStrings.xml')return;
+                  copyP.push(entry.async('uint8array').then(function(data){outZip.file(path,data)}));
                 });
 
-                // Clear conducida data cells if monofila
-                if(!hasCond){
-                  for(var r=57;r<=80;r++){
-                    for(var cc=6;cc<=16;cc++){
-                      setCell(r,cc,'',false);
-                    }
+                return Promise.all(copyP).then(function(){
+                  var pvZona=pv+'/'+String(sub||0).padStart(2,'0')+'/';
+
+                  function setCellDoc(doc2,rowNum,colNum,value,isNum){
+                    var rows2=doc2.getElementsByTagNameNS(ns,'row');
+                    var tRow=null;
+                    for(var ri=0;ri<rows2.length;ri++){if(parseInt(rows2[ri].getAttribute('r'))===rowNum){tRow=rows2[ri];break}}
+                    if(!tRow)return;
+                    var cL=colNum<=26?String.fromCharCode(64+colNum):String.fromCharCode(64+Math.floor((colNum-1)/26))+String.fromCharCode(65+(colNum-1)%26);
+                    var addr=cL+rowNum;
+                    var cells=tRow.getElementsByTagNameNS(ns,'c');
+                    var tc=null;
+                    for(var ci=0;ci<cells.length;ci++){if(cells[ci].getAttribute('r')===addr){tc=cells[ci];break}}
+                    if(!tc){tc=doc2.createElementNS(ns,'c');tc.setAttribute('r',addr);tRow.appendChild(tc)}
+                    var ov=tc.getElementsByTagNameNS(ns,'v');while(ov.length>0)tc.removeChild(ov[0]);
+                    var oi=tc.getElementsByTagNameNS(ns,'is');while(oi.length>0)tc.removeChild(oi[0]);
+                    var of2=tc.getElementsByTagNameNS(ns,'f');while(of2.length>0)tc.removeChild(of2[0]);
+                    if(value===''||value==null){tc.removeAttribute('t');return}
+                    if(isNum){tc.removeAttribute('t');var v=doc2.createElementNS(ns,'v');v.textContent=String(value);tc.appendChild(v)}
+                    else{tc.setAttribute('t','s');var v2=doc2.createElementNS(ns,'v');v2.textContent=String(addSS(String(value)));tc.appendChild(v2)}
                   }
-                }
 
-                // Clear pilar columns that don't apply for corto
-                if(!isLargo){
-                  // Corto uses cols I-M (9-13), clear G,H,N,O (7,8,14,15)
-                  var clearCols=[7,8,14,15];
-                  var clearRows=[];
-                  for(var rr=31;rr<=54;rr++)clearRows.push(rr);
-                  for(var rr2=57;rr2<=80;rr2++)clearRows.push(rr2);
-                  clearCols.forEach(function(cc2){
-                    clearRows.forEach(function(rr3){
-                      setCell(rr3,cc2,'',false);
+                  var newSheets=[];
+                  codes.forEach(function(code,idx){
+                    var d=MASTER_DATA[code];var qd=qualAll[fbCode(code)]||qualAll[code]||{};
+                    var cfg=PCFG[d.type];if(!cfg)return;
+                    var isLargo=(d.type==='bifila_largo'||d.type==='monofila_largo');
+                    var hasCond=(cfg.conducida!=null);var mpIdx=isLargo?4:2;
+
+                    var doc=parser.parseFromString(tplXml,'application/xml');
+                    setCellDoc(doc,4,3,pvZona,false);
+                    setCellDoc(doc,5,3,d.num,true);
+                    if(d.mx)setCellDoc(doc,6,4,d.mx,true);
+                    if(d.my)setCellDoc(doc,6,14,d.my,true);
+
+                    var faces=[{px:'fm',pils:cfg.motor,mR:31,cR:39,dR:37}];
+                    if(hasCond)faces.push({px:'fc',pils:cfg.conducida,mR:57,cR:65,dR:63});
+
+                    faces.forEach(function(face){
+                      face.pils.forEach(function(pL,i){
+                        var col=pilarCol(d.type,i);
+                        var al=qd[face.px+'_'+i+'_altura'];
+                        setCellDoc(doc,face.mR,col,al!=null?parseFloat(al):'',al!=null);
+                        var vns=qd[face.px+'_'+i+'_vert_ns'];
+                        setCellDoc(doc,face.mR+1,col,vns!=null?parseFloat(vns):'',vns!=null);
+                        var veo=qd[face.px+'_'+i+'_vert_eo'];
+                        setCellDoc(doc,face.mR+2,col,veo!=null?parseFloat(veo):'',veo!=null);
+                        setCellDoc(doc,face.mR+3,col,qd[face.px+'_'+i+'_torsion']||'',false);
+                        setCellDoc(doc,face.mR+4,col,qd[face.px+'_'+i+'_desv_eo']||'',false);
+                        setCellDoc(doc,face.mR+5,col,qd[face.px+'_'+i+'_desv_altura']||'',false);
+                        if(i!==mpIdx){
+                          var ac=calcAccumForExport(qd,face.px,i,mpIdx,d.type);
+                          setCellDoc(doc,face.dR,col,ac!=null?ac:'',ac!=null);
+                        }
+                        COMP_IDS.forEach(function(cid,ci){
+                          var cv=qd[face.px+'_'+i+'_'+cid];
+                          setCellDoc(doc,face.cR+ci,col,cv!=null?cv:'',false);
+                        });
+                      });
                     });
+                    if(!hasCond){for(var r=57;r<=80;r++)for(var cc=6;cc<=16;cc++)setCellDoc(doc,r,cc,'',false)}
+                    if(!isLargo){[6,7,8,14,15,16].forEach(function(cc){for(var r=31;r<=54;r++)setCellDoc(doc,r,cc,'',false);for(var r2=57;r2<=80;r2++)setCellDoc(doc,r2,cc,'',false)})}
+
+                    var sf='sheet'+(idx+1)+'.xml';
+                    outZip.file('xl/worksheets/'+sf,ser.serializeToString(doc));
+                    newSheets.push({name:String(d.num),file:'worksheets/'+sf,idx:idx+1});
                   });
-                }
 
-                var xmlStr=ser.serializeToString(doc);
-                var sheetFile='sheet'+(idx+1)+'.xml';
-                zip.file('xl/worksheets/'+sheetFile,xmlStr);
-                newSheetEntries.push({name:sheetName,file:sheetFile,rId:'rId'+(idx+10),idx:idx+1});
-              });
+                  // Workbook.xml
+                  var wbDoc=parser.parseFromString(wbXml,'application/xml');
+                  var wbNs2='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+                  var sheetsEl=wbDoc.getElementsByTagNameNS(wbNs2,'sheets')[0];
+                  var oldS=sheetsEl.getElementsByTagNameNS(wbNs2,'sheet');
+                  while(oldS.length>0)sheetsEl.removeChild(oldS[0]);
+                  newSheets.forEach(function(s){
+                    var el=wbDoc.createElementNS(wbNs2,'sheet');
+                    el.setAttribute('name',s.name);el.setAttribute('sheetId',String(s.idx));
+                    el.setAttribute('r:id','rIdS'+s.idx);sheetsEl.appendChild(el);
+                  });
+                  outZip.file('xl/workbook.xml',ser.serializeToString(wbDoc));
 
-              // Update workbook.xml
-              var wbDoc=parser.parseFromString(wbXml,'application/xml');
-              var wbNs='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-              var sheets=wbDoc.getElementsByTagNameNS(wbNs,'sheet');
-              // Remove existing sheets
-              var sheetsParent=sheets[0]?sheets[0].parentNode:null;
-              if(sheetsParent){
-                while(sheets.length>0)sheetsParent.removeChild(sheets[0]);
-                // Add new sheets
-                var rNs='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-                newSheetEntries.forEach(function(se){
-                  var sh=wbDoc.createElementNS(wbNs,'sheet');
-                  sh.setAttribute('name',se.name);
-                  sh.setAttribute('sheetId',String(se.idx));
-                  sh.setAttributeNS(rNs,'r:id',se.rId);
-                  sheetsParent.appendChild(sh);
+                  // Rels
+                  var newRD=parser.parseFromString(relsXml,'application/xml');
+                  var relEls=newRD.getElementsByTagNameNS(relNs,'Relationship');
+                  var rem=[];for(var ri=0;ri<relEls.length;ri++){if(relEls[ri].getAttribute('Type').indexOf('worksheet')>=0)rem.push(relEls[ri])}
+                  rem.forEach(function(r){r.parentNode.removeChild(r)});
+                  var rRoot=newRD.documentElement;
+                  newSheets.forEach(function(s){
+                    var rel=newRD.createElementNS(relNs,'Relationship');
+                    rel.setAttribute('Id','rIdS'+s.idx);
+                    rel.setAttribute('Type','http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet');
+                    rel.setAttribute('Target',s.file);rRoot.appendChild(rel);
+                  });
+                  outZip.file('xl/_rels/workbook.xml.rels',ser.serializeToString(newRD));
+
+                  // Content_Types
+                  var ctDoc=parser.parseFromString(ctXml,'application/xml');
+                  var ctNs='http://schemas.openxmlformats.org/package/2006/content-types';
+                  var ovs=ctDoc.getElementsByTagNameNS(ctNs,'Override');
+                  var remO=[];for(var oi=0;oi<ovs.length;oi++){if(ovs[oi].getAttribute('PartName').indexOf('/worksheets/')>=0)remO.push(ovs[oi])}
+                  remO.forEach(function(o){o.parentNode.removeChild(o)});
+                  newSheets.forEach(function(s){
+                    var ov=ctDoc.createElementNS(ctNs,'Override');
+                    ov.setAttribute('PartName','/xl/'+s.file);
+                    ov.setAttribute('ContentType','application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml');
+                    ctDoc.documentElement.appendChild(ov);
+                  });
+                  outZip.file('[Content_Types].xml',ser.serializeToString(ctDoc));
+
+                  if(ssDoc){ssDoc.documentElement.setAttribute('count',String(ssCount));ssDoc.documentElement.setAttribute('uniqueCount',String(ssCount));outZip.file('xl/sharedStrings.xml',ser.serializeToString(ssDoc))}
+                  return outZip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
                 });
-              }
-              zip.file('xl/workbook.xml',ser.serializeToString(wbDoc));
-
-              // Update [Content_Types].xml
-              var ctDoc=parser.parseFromString(ctXml,'application/xml');
-              var ctNs='http://schemas.openxmlformats.org/package/2006/content-types';
-              var overrides=ctDoc.getElementsByTagNameNS(ctNs,'Override');
-              // Remove old sheet overrides
-              var toRemove=[];
-              for(var oi=0;oi<overrides.length;oi++){
-                if(overrides[oi].getAttribute('PartName').indexOf('/worksheets/sheet')>=0)
-                  toRemove.push(overrides[oi]);
-              }
-              toRemove.forEach(function(o){o.parentNode.removeChild(o)});
-              // Add new
-              var typesEl=ctDoc.documentElement;
-              newSheetEntries.forEach(function(se){
-                var ov=ctDoc.createElementNS(ctNs,'Override');
-                ov.setAttribute('PartName','/xl/worksheets/'+se.file);
-                ov.setAttribute('ContentType','application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml');
-                typesEl.appendChild(ov);
               });
-              zip.file('[Content_Types].xml',ser.serializeToString(ctDoc));
-
-              // Update workbook.xml.rels
-              var relsDoc=parser.parseFromString(relsXml,'application/xml');
-              var relNs='http://schemas.openxmlformats.org/package/2006/relationships';
-              var rels=relsDoc.getElementsByTagNameNS(relNs,'Relationship');
-              // Remove old sheet rels
-              var toRem2=[];
-              for(var ri2=0;ri2<rels.length;ri2++){
-                if(rels[ri2].getAttribute('Target').indexOf('worksheets/sheet')>=0)
-                  toRem2.push(rels[ri2]);
-              }
-              toRem2.forEach(function(r2){r2.parentNode.removeChild(r2)});
-              // Add new
-              var relsRoot=relsDoc.documentElement;
-              newSheetEntries.forEach(function(se){
-                var rel=relsDoc.createElementNS(relNs,'Relationship');
-                rel.setAttribute('Id',se.rId);
-                rel.setAttribute('Type','http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet');
-                rel.setAttribute('Target','worksheets/'+se.file);
-                relsRoot.appendChild(rel);
-              });
-              zip.file('xl/_rels/workbook.xml.rels',ser.serializeToString(relsDoc));
-
-              return zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
             });
           });
         });
-      }).then(function(blob){
-        if(!blob)return;
-        var fname='ATALAYA_CHECKLIST_PV_'+String(pv).padStart(2,'0')+'_SUBCAMPO_'+(sub||'ALL')+'.xlsx';
-        dlBlob(blob,fname);
-        showToast('✅ Checklist exportado','var(--ac)');
       });
+    }).then(function(blob){
+      if(!blob)return;
+      dlBlob(blob,'ATALAYA_CHECKLIST_PV_'+String(pv).padStart(2,'0')+'_SUBCAMPO_'+(sub||'ALL')+'.xlsx');
+      showToast('✅ Checklist exportado','var(--ac)');
     });
-  }).catch(function(err){
-    showToast('❌ Error: '+err.message,'var(--no)');
-    console.error(err);
-  });
+  }).catch(function(err){showToast('❌ Error: '+err.message,'var(--no)');console.error(err)});
 }
-
+\n
 // ── UI: Export modal for PV+Subcampo selection ──
 function showExportModal(){
   var pvs=[...new Set(Object.values(MASTER_DATA).map(function(d){return d.pv}))].sort(function(a,b){return a-b});
