@@ -1844,10 +1844,12 @@ function exportChecklist(pv,sub){
   showToast('⏳ Generando checklist...','var(--info)');
   Promise.all([
     fetchTemplate(TPL_CHECKLIST),
-    db.ref('quality').once('value')
+    db.ref('quality').once('value'),
+    db.ref('construction').once('value')
   ]).then(function(results){
     var buf=results[0];
     var qualAll=results[1].val()||{};
+    var conAll=results[2].val()||{};
 
     return JSZip.loadAsync(buf).then(function(zip){
       // Get trackers for this PV+sub
@@ -1945,6 +1947,9 @@ function exportChecklist(pv,sub){
                 // Fill header data
                 setCell(4,3,pvZona,false); // C4: PV/zona
                 setCell(5,3,d.num,true);   // C5: tracker number
+                // Coordinates: D6 (X=UTM easting), N6 (Y=UTM northing) from master
+                if(d.mx)setCell(6,4,d.mx,true);
+                if(d.my)setCell(6,14,d.my,true);
 
                 // Fill Motor data
                 var faces=[{px:'fm',pils:cfg.motor,mRow:31,cRow:39,dRow:37,pilarOffset:0}];
