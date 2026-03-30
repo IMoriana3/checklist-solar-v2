@@ -1747,12 +1747,14 @@ function calcAccumForExport(qd,px,piIdx,mpIdx,type){
 // ============================================================
 function exportAlturas(pv,sub){
   showToast('⏳ Generando alturas...','var(--info)');
+  console.log('exportAlturas: pv='+pv+' sub='+sub);
   Promise.all([
     fetchTemplate(TPL_ALTURAS),
     db.ref('quality').once('value')
   ]).then(function(results){
     var buf=results[0];
     var qualAll=results[1].val()||{};
+    console.log('exportAlturas: template size='+buf.byteLength+' qualKeys='+Object.keys(qualAll).length);
 
     return JSZip.loadAsync(buf).then(function(zip){
       return zip.file('xl/workbook.xml').async('string').then(function(wbXml){
@@ -1763,13 +1765,16 @@ function exportAlturas(pv,sub){
           var rNs='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
           var sheets=wbDoc.getElementsByTagNameNS(wbNs,'sheet');
           var listRId=null;
+          console.log('exportAlturas: sheets found='+sheets.length);
           for(var i=0;i<sheets.length;i++){
             var nm=sheets[i].getAttribute('name');
-            if(nm==='List'||nm===' List'){
-              listRId=sheets[i].getAttributeNS(rNs,'id')||sheets[i].getAttribute('r:id');break;
+            console.log('  sheet['+i+']: name="'+nm+'" rId='+sheets[i].getAttribute('r:id'));
+            if(nm.trim()==='List'){
+              listRId=sheets[i].getAttribute('r:id');break;
             }
           }
-          if(!listRId){showToast('❌ Hoja List no encontrada','var(--no)');return}
+          if(!listRId){showToast('❌ Hoja List no encontrada','var(--no)');console.error('No List sheet found');return}
+          console.log('exportAlturas: listRId='+listRId);
           var relsDoc=parser.parseFromString(relsXml,'application/xml');
           var relNs2='http://schemas.openxmlformats.org/package/2006/relationships';
           var rels=relsDoc.getElementsByTagNameNS(relNs2,'Relationship');
@@ -1779,43 +1784,54 @@ function exportAlturas(pv,sub){
           }
           if(!sheetFile){showToast('❌ Sheet file no encontrado','var(--no)');return}
           var sheetPath='xl/'+sheetFile;
+          console.log('exportAlturas: sheetPath='+sheetPath);
 
           return zip.file(sheetPath).async('string').then(function(sheetXml){
             var doc=parser.parseFromString(sheetXml,'application/xml');
             var ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
             var sheetData=doc.getElementsByTagNameNS(ns,'sheetData')[0];
             var rows=sheetData.getElementsByTagNameNS(ns,'row');
+            console.log('exportAlturas: rows before purge='+rows.length);
 
             // Remove data rows >= 16
             var toRem=[];
             for(var ri=0;ri<rows.length;ri++){if(parseInt(rows[ri].getAttribute('r'))>=16)toRem.push(rows[ri])}
             toRem.forEach(function(r){sheetData.removeChild(r)});
+            console.log('exportAlturas: removed '+toRem.length+' rows, remaining='+sheetData.getElementsByTagNameNS(ns,'row').length);
 
-            // Read shared strings
-            return zip.file('xl/sharedStrings.xml').async('string').then(function(ssXml){
-              var ssDoc=parser.parseFromString(ssXml,'application/xml');
-              var siEls=ssDoc.getElementsByTagNameNS(ns,'si');
-              var ssCount=siEls.length;var ssMap={};
-              for(var si=0;si<siEls.length;si++){
-                var t=siEls[si].getElementsByTagNameNS(ns,'t')[0];
-                if(t)ssMap[t.textContent]=si;
+            // Read shared strings (may not exist)
+            var ssFile=zip.file('xl/sharedStrings.xml');
+            var ssPromise=ssFile?ssFile.async('string'):Promise.resolve(null);
+            return ssPromise.then(function(ssXml){
+              var ssDoc=ssXml?parser.parseFromString(ssXml,'application/xml'):null;
+              var ssCount=0;var ssMap={};
+              if(ssDoc){
+                var siEls=ssDoc.getElementsByTagNameNS(ns,'si');
+                ssCount=siEls.length;
+                for(var si=0;si<siEls.length;si++){
+                  var t=siEls[si].getElementsByTagNameNS(ns,'t')[0];
+                  if(t)ssMap[t.textContent]=si;
+                }
               }
+              console.log('exportAlturas: shared strings='+ssCount);
               function addSS(str){
                 if(ssMap[str]!=null)return ssMap[str];
-                var si=ssDoc.createElementNS(ns,'si');var t=ssDoc.createElementNS(ns,'t');
-                t.textContent=str;si.appendChild(t);ssDoc.documentElement.appendChild(si);
+                if(!ssDoc){ssDoc=parser.parseFromString('<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"/>','application/xml')}
+                var si2=ssDoc.createElementNS(ns,'si');var t2=ssDoc.createElementNS(ns,'t');
+                t2.textContent=str;si2.appendChild(t2);ssDoc.documentElement.appendChild(si2);
                 var idx=ssCount;ssCount++;ssMap[str]=idx;return idx;
               }
               function mkCell(d2,addr,val,type){
                 var c=d2.createElementNS(ns,'c');c.setAttribute('r',addr);
                 if(type==='s'){c.setAttribute('t','s');var v=d2.createElementNS(ns,'v');v.textContent=String(addSS(String(val)));c.appendChild(v)}
-                else if(type==='n'&&val!=null&&val!==''){var v=d2.createElementNS(ns,'v');v.textContent=String(val);c.appendChild(v)}
+                else if(type==='n'&&val!=null&&val!==''){var v2=d2.createElementNS(ns,'v');v2.textContent=String(val);c.appendChild(v2)}
                 else if(type==='f'){var f=d2.createElementNS(ns,'f');f.textContent=val;c.appendChild(f)}
                 return c;
               }
 
               var codes=Object.keys(MASTER_DATA).filter(function(code){var d=MASTER_DATA[code];return d.pv===pv&&(sub===0||d.sub===sub)}).sort();
-              var pvSub=pv+'/'+(sub||0);var rowNum=16;
+              console.log('exportAlturas: trackers='+codes.length);
+              var pvSub=pv+'/'+(sub||0);var rowNum=16;var filledCount=0;
 
               codes.forEach(function(code){
                 var d=MASTER_DATA[code];var qd=qualAll[fbCode(code)]||qualAll[code]||{};
@@ -1823,6 +1839,8 @@ function exportAlturas(pv,sub){
                 var isLargo=(d.type==='bifila_largo'||d.type==='monofila_largo');
                 var pNamesM=isLargo?PILAR_NAMES_LARGO_M:PILAR_NAMES_CORTO_M;
                 var pNamesC=isLargo?PILAR_NAMES_LARGO_C:PILAR_NAMES_CORTO_C;
+                var qdKeys=Object.keys(qd).length;
+                if(codes.indexOf(code)<3)console.log('  tracker '+code+': fbCode='+fbCode(code)+' qdKeys='+qdKeys+(qdKeys>0?' sample='+Object.keys(qd).slice(0,5).join(','):''));
                 function addR(pName,fila,altKey){
                   var alt=qd[altKey];var nom=getNomLen(pName);var R=String(rowNum);
                   var rw=doc.createElementNS(ns,'row');rw.setAttribute('r',R);
@@ -1830,7 +1848,7 @@ function exportAlturas(pv,sub){
                   rw.appendChild(mkCell(doc,'D'+R,d.num,'n'));
                   rw.appendChild(mkCell(doc,'E'+R,pName,'s'));
                   rw.appendChild(mkCell(doc,'F'+R,fila,'s'));
-                  if(alt!=null)rw.appendChild(mkCell(doc,'G'+R,parseFloat(alt),'n'));
+                  if(alt!=null){rw.appendChild(mkCell(doc,'G'+R,parseFloat(alt),'n'));filledCount++}
                   rw.appendChild(mkCell(doc,'J'+R,nom,'n'));
                   rw.appendChild(mkCell(doc,'K'+R,'+J'+R+'-G'+R,'f'));
                   rw.appendChild(mkCell(doc,'L'+R,1800,'n'));
@@ -1841,10 +1859,18 @@ function exportAlturas(pv,sub){
                 if(cfg.conducida){cfg.conducida.forEach(function(pL,i){addR(pNamesC[i],'Conducida','fc_'+i+'_altura')})}
               });
 
-              ssDoc.documentElement.setAttribute('count',String(ssCount));
-              ssDoc.documentElement.setAttribute('uniqueCount',String(ssCount));
+              console.log('exportAlturas: totalRows='+(rowNum-16)+' filledAlturas='+filledCount);
+
+              // Update dimension
+              var dims=doc.getElementsByTagNameNS(ns,'dimension');
+              if(dims.length>0){dims[0].setAttribute('ref','A1:M'+rowNum)}
+
+              if(ssDoc){
+                ssDoc.documentElement.setAttribute('count',String(ssCount));
+                ssDoc.documentElement.setAttribute('uniqueCount',String(ssCount));
+                zip.file('xl/sharedStrings.xml',ser.serializeToString(ssDoc));
+              }
               zip.file(sheetPath,ser.serializeToString(doc));
-              zip.file('xl/sharedStrings.xml',ser.serializeToString(ssDoc));
               return zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
             });
           });
@@ -1855,7 +1881,7 @@ function exportAlturas(pv,sub){
       dlBlob(blob,'XXX-PV_'+String(pv).padStart(2,'0')+'-'+(sub||'ALL')+'.xlsx');
       showToast('✅ Alturas exportadas','var(--ac)');
     });
-  }).catch(function(err){showToast('❌ Error: '+err.message,'var(--no)');console.error(err)});
+  }).catch(function(err){showToast('❌ Error: '+err.message,'var(--no)');console.error('exportAlturas error:',err)});
 }
 
 // ============================================================
