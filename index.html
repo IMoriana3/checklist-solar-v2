@@ -1969,6 +1969,26 @@ function exportChecklist(pv,sub){
                     if(isNum){tc.removeAttribute('t');var v=doc2.createElementNS(ns,'v');v.textContent=String(value);tc.appendChild(v)}
                     else{tc.setAttribute('t','s');var v2=doc2.createElementNS(ns,'v');v2.textContent=String(addSS(String(value)));tc.appendChild(v2)}
                   }
+                  // Clear cell value only — preserves style/formatting
+                  function clearCellValue(doc2,rowNum,colNum){
+                    var rows2=doc2.getElementsByTagNameNS(ns,'row');
+                    var tRow=null;
+                    for(var ri=0;ri<rows2.length;ri++){if(parseInt(rows2[ri].getAttribute('r'))===rowNum){tRow=rows2[ri];break}}
+                    if(!tRow)return;
+                    var cL=colNum<=26?String.fromCharCode(64+colNum):String.fromCharCode(64+Math.floor((colNum-1)/26))+String.fromCharCode(65+(colNum-1)%26);
+                    var addr=cL+rowNum;
+                    var cells=tRow.getElementsByTagNameNS(ns,'c');
+                    for(var ci=0;ci<cells.length;ci++){
+                      if(cells[ci].getAttribute('r')===addr){
+                        var tc=cells[ci];
+                        var ov=tc.getElementsByTagNameNS(ns,'v');while(ov.length>0)tc.removeChild(ov[0]);
+                        var oi=tc.getElementsByTagNameNS(ns,'is');while(oi.length>0)tc.removeChild(oi[0]);
+                        var of2=tc.getElementsByTagNameNS(ns,'f');while(of2.length>0)tc.removeChild(of2[0]);
+                        tc.removeAttribute('t');
+                        return;
+                      }
+                    }
+                  }
 
                   var newSheets=[];
                   codes.forEach(function(code,idx){
@@ -1990,26 +2010,31 @@ function exportChecklist(pv,sub){
                       face.pils.forEach(function(pL,i){
                         var col=pilarCol(d.type,i);
                         var al=qd[face.px+'_'+i+'_altura'];
-                        setCellDoc(doc,face.mR,col,al!=null?parseFloat(al):'',al!=null);
+                        if(al!=null)setCellDoc(doc,face.mR,col,parseFloat(al),true);
                         var vns=qd[face.px+'_'+i+'_vert_ns'];
-                        setCellDoc(doc,face.mR+1,col,vns!=null?parseFloat(vns):'',vns!=null);
+                        if(vns!=null)setCellDoc(doc,face.mR+1,col,parseFloat(vns),true);
                         var veo=qd[face.px+'_'+i+'_vert_eo'];
-                        setCellDoc(doc,face.mR+2,col,veo!=null?parseFloat(veo):'',veo!=null);
-                        setCellDoc(doc,face.mR+3,col,qd[face.px+'_'+i+'_torsion']||'',false);
-                        setCellDoc(doc,face.mR+4,col,qd[face.px+'_'+i+'_desv_eo']||'',false);
-                        setCellDoc(doc,face.mR+5,col,qd[face.px+'_'+i+'_desv_altura']||'',false);
+                        if(veo!=null)setCellDoc(doc,face.mR+2,col,parseFloat(veo),true);
+                        var tor=qd[face.px+'_'+i+'_torsion'];
+                        if(tor!=null)setCellDoc(doc,face.mR+3,col,tor,false);
+                        var deo=qd[face.px+'_'+i+'_desv_eo'];
+                        if(deo!=null)setCellDoc(doc,face.mR+4,col,deo,false);
+                        var dal=qd[face.px+'_'+i+'_desv_altura'];
+                        if(dal!=null)setCellDoc(doc,face.mR+5,col,dal,false);
                         if(i!==mpIdx){
                           var ac=calcAccumForExport(qd,face.px,i,mpIdx,d.type);
-                          setCellDoc(doc,face.dR,col,ac!=null?ac:'',ac!=null);
+                          if(ac!=null)setCellDoc(doc,face.dR,col,ac,true);
                         }
                         COMP_IDS.forEach(function(cid,ci){
                           var cv=qd[face.px+'_'+i+'_'+cid];
-                          setCellDoc(doc,face.cR+ci,col,cv!=null?cv:'',false);
+                          if(cv!=null)setCellDoc(doc,face.cR+ci,col,cv,false);
                         });
                       });
                     });
-                    if(!hasCond){for(var r=57;r<=80;r++)for(var cc=6;cc<=16;cc++)setCellDoc(doc,r,cc,'',false)}
-                    if(!isLargo){[6,7,8,14,15,16].forEach(function(cc){for(var r=31;r<=54;r++)setCellDoc(doc,r,cc,'',false);for(var r2=57;r2<=80;r2++)setCellDoc(doc,r2,cc,'',false)})}
+                    // Clear template data from conducida section if monofila
+                    if(!hasCond){for(var r=57;r<=80;r++)for(var cc=6;cc<=16;cc++)clearCellValue(doc,r,cc)}
+                    // Clear template data from unused pilar columns if corto
+                    if(!isLargo){[6,7,8,14,15,16].forEach(function(cc){for(var r=31;r<=54;r++)clearCellValue(doc,r,cc);for(var r2=57;r2<=80;r2++)clearCellValue(doc,r2,cc)})}
 
                     var sf='sheet'+(idx+1)+'.xml';
                     outZip.file('xl/worksheets/'+sf,ser.serializeToString(doc));
