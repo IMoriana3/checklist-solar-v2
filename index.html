@@ -2046,7 +2046,6 @@ function exportChecklist(pv,sub){
     });
   }).catch(function(err){showToast('❌ Error: '+err.message,'var(--no)');console.error(err)});
 }
-\n
 // ── UI: Export modal for PV+Subcampo selection ──
 function showExportModal(){
   var pvs=[...new Set(Object.values(MASTER_DATA).map(function(d){return d.pv}))].sort(function(a,b){return a-b});
