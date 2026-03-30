@@ -2695,7 +2695,6 @@ function generateWeeklyReport(){
   var now=new Date();
   var weekAgo=new Date(now.getTime()-7*24*60*60*1000);
   
-  // Fetch all data
   Promise.all([
     db.ref('construction').once('value'),
     db.ref('con_log').orderByChild('ts').startAt(weekAgo.getTime()).once('value'),
@@ -2712,17 +2711,41 @@ function generateWeeklyReport(){
     var logs=Object.values(logData);
     var jsPDF=window.jspdf.jsPDF;
     var doc=new jsPDF();
+    var W=210;var M=14;var CW=W-2*M;
     
-    // Header
-    doc.setFontSize(20);doc.setFont(undefined,'bold');
-    doc.text('INFORME SEMANAL',14,20);
-    doc.setFontSize(12);doc.setFont(undefined,'normal');
-    doc.text('ISFV ATALAYA — XAMAI / X-ELIO',14,28);
-    doc.text('Periodo: '+weekAgo.toLocaleDateString('es-ES')+' — '+now.toLocaleDateString('es-ES'),14,35);
-    doc.text('Generado: '+now.toLocaleString('es-ES')+' por '+(U?U.name:''),14,42);
-    doc.setLineWidth(0.5);doc.line(14,46,196,46);
+    // Colors
+    var cGreen=[5,150,105];var cGreenL=[220,252,231];
+    var cBlue=[59,130,246];var cBlueL=[219,234,254];
+    var cRed=[239,68,68];var cRedL=[254,226,226];
+    var cAmber=[245,158,11];var cAmberL=[254,243,199];
+    var cDark=[30,41,59];var cGray=[100,116,139];var cLightGray=[241,245,249];
+    var cBrand=[6,95,70];
     
-    // KPIs
+    function setC(c){doc.setTextColor(c[0],c[1],c[2])}
+    function fillR(x,y,w,h2,c){doc.setFillColor(c[0],c[1],c[2]);doc.roundedRect(x,y,w,h2,2,2,'F')}
+    function drawBar(x,y,w,h2,pct,cBg,cFg){
+      doc.setFillColor(cBg[0],cBg[1],cBg[2]);doc.roundedRect(x,y,w,h2,1.5,1.5,'F');
+      if(pct>0){doc.setFillColor(cFg[0],cFg[1],cFg[2]);doc.roundedRect(x,y,Math.max(w*pct/100,3),h2,1.5,1.5,'F')}
+    }
+    
+    // ── PAGE 1: HEADER ──
+    doc.setFillColor(cBrand[0],cBrand[1],cBrand[2]);
+    doc.rect(0,0,W,42,'F');
+    doc.setFillColor(4,120,87);doc.rect(0,36,W,6,'F'); // gradient band
+    
+    doc.setTextColor(255,255,255);doc.setFontSize(22);doc.setFont(undefined,'bold');
+    doc.text('INFORME SEMANAL',M,18);
+    doc.setFontSize(11);doc.setFont(undefined,'normal');
+    doc.text('ISFV ATALAYA — XAMAI / X-ELIO',M,26);
+    doc.setFontSize(9);
+    doc.text(weekAgo.toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})+' — '+now.toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'}),M,33);
+    
+    // Right side: date
+    doc.setFontSize(8);
+    doc.text('Generado: '+now.toLocaleString('es-ES'),W-M,33,{align:'right'});
+    doc.text('Por: '+(U?U.name:''),W-M,26,{align:'right'});
+    
+    // ── KPIs ──
     var totalPilars=0,hincados=0,rechazos=0;
     Object.keys(conData).forEach(function(code){
       var tr=conData[code];
@@ -2733,26 +2756,67 @@ function generateWeeklyReport(){
         else if(tr[k]==='rechazo')rechazos++;
       });
     });
+    var pendientes=totalPilars-hincados-rechazos;
+    var pctDone=totalPilars>0?Math.round(hincados/totalPilars*100):0;
     
     var weekHincados=logs.filter(function(l){return l.field&&l.field.indexOf('_estado')>=0&&l.value==='hincada'}).length;
     var weekRechazos=logs.filter(function(l){return l.field&&l.field.indexOf('_estado')>=0&&l.value==='rechazo'}).length;
     
-    doc.setFontSize(14);doc.setFont(undefined,'bold');
-    doc.text('1. RESUMEN GENERAL',14,56);
-    doc.setFontSize(11);doc.setFont(undefined,'normal');
-    var y=64;
-    doc.text('Hincas registradas total: '+totalPilars,20,y);y+=7;
-    doc.text('Hincas realizadas total: '+hincados+' ('+Math.round(hincados/Math.max(totalPilars,1)*100)+'%)',20,y);y+=7;
-    doc.text('Rechazos total: '+rechazos,20,y);y+=7;
-    doc.text('Hincados esta semana: '+weekHincados,20,y);y+=7;
-    doc.text('Rechazos esta semana: '+weekRechazos,20,y);y+=12;
+    var y=50;
+    setC(cDark);doc.setFontSize(13);doc.setFont(undefined,'bold');
+    doc.text('RESUMEN GENERAL',M,y);y+=4;
     
-    // By day this week
-    doc.setFontSize(14);doc.setFont(undefined,'bold');
-    doc.text('2. ACTIVIDAD POR DIA',14,y);y+=8;
-    doc.setFontSize(10);doc.setFont(undefined,'normal');
+    // Progress bar full width
+    drawBar(M,y,CW,6,pctDone,cLightGray,cGreen);
+    setC(cDark);doc.setFontSize(8);doc.setFont(undefined,'bold');
+    doc.text(pctDone+'%',M+CW/2,y+4.5,{align:'center'});
+    y+=12;
     
-    var byDay={};
+    // KPI boxes — 4 across
+    var bw=(CW-9)/4;
+    var kpis=[
+      {label:'HINCADOS',val:hincados.toLocaleString('es-ES'),bg:cGreenL,fg:cGreen,sub:pctDone+'% del total'},
+      {label:'RECHAZOS',val:rechazos.toLocaleString('es-ES'),bg:cRedL,fg:cRed,sub:totalPilars>0?Math.round(rechazos/totalPilars*100)+'%':''},
+      {label:'PENDIENTES',val:pendientes.toLocaleString('es-ES'),bg:cBlueL,fg:cBlue,sub:totalPilars>0?Math.round(pendientes/totalPilars*100)+'%':''},
+      {label:'TOTAL HINCAS',val:totalPilars.toLocaleString('es-ES'),bg:cLightGray,fg:cDark,sub:'1.756 trackers'}
+    ];
+    kpis.forEach(function(k,i){
+      var bx=M+i*(bw+3);
+      fillR(bx,y,bw,24,k.bg);
+      setC(k.fg);doc.setFontSize(7);doc.setFont(undefined,'bold');
+      doc.text(k.label,bx+bw/2,y+5,{align:'center'});
+      doc.setFontSize(16);
+      doc.text(k.val,bx+bw/2,y+15,{align:'center'});
+      setC(cGray);doc.setFontSize(6);doc.setFont(undefined,'normal');
+      doc.text(k.sub,bx+bw/2,y+21,{align:'center'});
+    });
+    y+=30;
+    
+    // Week KPIs
+    var bw2=(CW-3)/2;
+    fillR(M,y,bw2,16,cGreenL);
+    setC(cGreen);doc.setFontSize(7);doc.setFont(undefined,'bold');
+    doc.text('HINCADOS ESTA SEMANA',M+bw2/2,y+5,{align:'center'});
+    doc.setFontSize(14);
+    doc.text(String(weekHincados),M+bw2/2,y+13,{align:'center'});
+    
+    fillR(M+bw2+3,y,bw2,16,cRedL);
+    setC(cRed);doc.setFontSize(7);doc.setFont(undefined,'bold');
+    doc.text('RECHAZOS ESTA SEMANA',M+bw2+3+bw2/2,y+5,{align:'center'});
+    doc.setFontSize(14);
+    doc.text(String(weekRechazos),M+bw2+3+bw2/2,y+13,{align:'center'});
+    y+=24;
+    
+    // ── ACTIVIDAD POR DÍA — table ──
+    setC(cDark);doc.setFontSize(13);doc.setFont(undefined,'bold');
+    doc.text('ACTIVIDAD POR DÍA',M,y);y+=6;
+    
+    var byDay={};var dayOrder=[];
+    for(var dd=0;dd<7;dd++){
+      var dt=new Date(weekAgo.getTime()+dd*24*60*60*1000);
+      var key=dt.toLocaleDateString('es-ES',{weekday:'short',day:'numeric',month:'short'});
+      dayOrder.push(key);byDay[key]={total:0,hincados:0,rechazos:0};
+    }
     logs.forEach(function(l){
       if(!l.ts)return;
       var d=new Date(l.ts);
@@ -2763,16 +2827,27 @@ function generateWeeklyReport(){
       if(l.value==='rechazo')byDay[key].rechazos++;
     });
     
-    Object.keys(byDay).forEach(function(day){
-      var d=byDay[day];
-      doc.text(day+': '+d.total+' registros, '+d.hincados+' hincados, '+d.rechazos+' rechazos',20,y);y+=6;
-    });
-    y+=6;
+    // Table header
+    fillR(M,y,CW,7,[4,120,87]);
+    doc.setTextColor(255,255,255);doc.setFontSize(7);doc.setFont(undefined,'bold');
+    doc.text('DÍA',M+3,y+5);doc.text('REGISTROS',M+65,y+5);doc.text('HINCADOS',M+100,y+5);doc.text('RECHAZOS',M+135,y+5);
+    y+=7;
     
-    // By operator
-    doc.setFontSize(14);doc.setFont(undefined,'bold');
-    doc.text('3. POR OPERADOR',14,y);y+=8;
-    doc.setFontSize(10);doc.setFont(undefined,'normal');
+    dayOrder.forEach(function(day,i){
+      var d=byDay[day];
+      if(i%2===0)fillR(M,y,CW,6,cLightGray);
+      setC(cDark);doc.setFontSize(7);doc.setFont(undefined,'normal');
+      doc.text(day,M+3,y+4.5);
+      doc.text(String(d.total),M+73,y+4.5);
+      setC(cGreen);doc.text(String(d.hincados),M+108,y+4.5);
+      setC(cRed);doc.text(String(d.rechazos),M+143,y+4.5);
+      y+=6;
+    });
+    y+=8;
+    
+    // ── POR OPERADOR — table ──
+    setC(cDark);doc.setFontSize(13);doc.setFont(undefined,'bold');
+    doc.text('POR OPERADOR',M,y);y+=6;
     
     var byOp={};
     logs.forEach(function(l){
@@ -2782,38 +2857,61 @@ function generateWeeklyReport(){
       if(l.value==='hincada')byOp[l.by].h++;
       if(l.value==='rechazo')byOp[l.by].r++;
     });
+    var opKeys=Object.keys(byOp).sort(function(a,b){return byOp[b].h-byOp[a].h});
     
-    Object.keys(byOp).sort(function(a,b){return byOp[b].h-byOp[a].h}).forEach(function(op){
-      var o=byOp[op];
-      doc.text(op+': '+o.h+' hincados, '+o.r+' rechazos ('+o.total+' registros)',20,y);y+=6;
+    fillR(M,y,CW,7,[4,120,87]);
+    doc.setTextColor(255,255,255);doc.setFontSize(7);doc.setFont(undefined,'bold');
+    doc.text('OPERADOR',M+3,y+5);doc.text('HINCADOS',M+80,y+5);doc.text('RECHAZOS',M+115,y+5);doc.text('TOTAL',M+150,y+5);
+    y+=7;
+    
+    opKeys.forEach(function(op,i){
       if(y>270){doc.addPage();y=20}
+      var o=byOp[op];
+      if(i%2===0)fillR(M,y,CW,6,cLightGray);
+      setC(cDark);doc.setFontSize(7);doc.setFont(undefined,'normal');
+      doc.text(op,M+3,y+4.5);
+      setC(cGreen);doc.text(String(o.h),M+88,y+4.5);
+      setC(cRed);doc.text(String(o.r),M+123,y+4.5);
+      setC(cDark);doc.text(String(o.total),M+155,y+4.5);
+      y+=6;
     });
-    y+=6;
+    y+=10;
     
-    // Timer stats
+    // ── PRODUCTIVIDAD ──
     var timerCount=0,totalDur=0;
     Object.keys(timerData).forEach(function(code){
       var t=timerData[code];
       Object.keys(t).forEach(function(k){
-        if(t[k].start&&t[k].end){
-          timerCount++;
-          totalDur+=(t[k].end-t[k].start)/1000;
-        }
+        if(t[k].start&&t[k].end){timerCount++;totalDur+=(t[k].end-t[k].start)/1000}
       });
     });
     
     if(timerCount>0){
       if(y>250){doc.addPage();y=20}
-      doc.setFontSize(14);doc.setFont(undefined,'bold');
-      doc.text('4. PRODUCTIVIDAD',14,y);y+=8;
-      doc.setFontSize(10);doc.setFont(undefined,'normal');
+      setC(cDark);doc.setFontSize(13);doc.setFont(undefined,'bold');
+      doc.text('PRODUCTIVIDAD',M,y);y+=6;
+      
       var avgMin=Math.round(totalDur/timerCount/60);
-      doc.text('Hincas con timer: '+timerCount,20,y);y+=6;
-      doc.text('Tiempo medio por hinca: '+avgMin+' minutos',20,y);y+=6;
-      doc.text('Tiempo total registrado: '+Math.round(totalDur/3600)+' horas',20,y);y+=12;
+      var bw3=(CW-6)/3;
+      
+      fillR(M,y,bw3,18,cBlueL);
+      setC(cBlue);doc.setFontSize(7);doc.setFont(undefined,'bold');
+      doc.text('HINCAS CON TIMER',M+bw3/2,y+5,{align:'center'});
+      doc.setFontSize(14);doc.text(String(timerCount),M+bw3/2,y+14,{align:'center'});
+      
+      fillR(M+bw3+3,y,bw3,18,cAmberL);
+      setC(cAmber);doc.setFontSize(7);doc.setFont(undefined,'bold');
+      doc.text('MEDIA POR HINCA',M+bw3+3+bw3/2,y+5,{align:'center'});
+      doc.setFontSize(14);doc.text(avgMin+' min',M+bw3+3+bw3/2,y+14,{align:'center'});
+      
+      fillR(M+2*(bw3+3),y,bw3,18,cGreenL);
+      setC(cGreen);doc.setFontSize(7);doc.setFont(undefined,'bold');
+      doc.text('TIEMPO TOTAL',M+2*(bw3+3)+bw3/2,y+5,{align:'center'});
+      doc.setFontSize(14);doc.text(Math.round(totalDur/3600)+'h',M+2*(bw3+3)+bw3/2,y+14,{align:'center'});
+      y+=26;
     }
     
-    // Punchlist
+    // ── PUNCHLIST ──
     var plItems=Object.values(plData);
     var plPend=plItems.filter(function(p){return p.estado==='pendiente'}).length;
     var plRep=plItems.filter(function(p){return p.estado==='reparado'}).length;
@@ -2821,29 +2919,88 @@ function generateWeeklyReport(){
     
     if(plItems.length>0){
       if(y>250){doc.addPage();y=20}
-      doc.setFontSize(14);doc.setFont(undefined,'bold');
-      doc.text('5. PUNCHLIST',14,y);y+=8;
-      doc.setFontSize(10);doc.setFont(undefined,'normal');
-      doc.text('Pendientes: '+plPend+' | Reparados: '+plRep+' | Verificados: '+plVer,20,y);y+=12;
+      setC(cDark);doc.setFontSize(13);doc.setFont(undefined,'bold');
+      doc.text('PUNCHLIST',M,y);y+=6;
+      
+      var bw4=(CW-6)/3;
+      fillR(M,y,bw4,18,cRedL);
+      setC(cRed);doc.setFontSize(7);doc.setFont(undefined,'bold');
+      doc.text('PENDIENTES',M+bw4/2,y+5,{align:'center'});
+      doc.setFontSize(14);doc.text(String(plPend),M+bw4/2,y+14,{align:'center'});
+      
+      fillR(M+bw4+3,y,bw4,18,cAmberL);
+      setC(cAmber);doc.setFontSize(7);doc.setFont(undefined,'bold');
+      doc.text('REPARADOS',M+bw4+3+bw4/2,y+5,{align:'center'});
+      doc.setFontSize(14);doc.text(String(plRep),M+bw4+3+bw4/2,y+14,{align:'center'});
+      
+      fillR(M+2*(bw4+3),y,bw4,18,cGreenL);
+      setC(cGreen);doc.setFontSize(7);doc.setFont(undefined,'bold');
+      doc.text('VERIFICADOS',M+2*(bw4+3)+bw4/2,y+5,{align:'center'});
+      doc.setFontSize(14);doc.text(String(plVer),M+2*(bw4+3)+bw4/2,y+14,{align:'center'});
+      y+=26;
     }
     
-    // Workflow states
-    var wfKeys=Object.keys(wfData);
-    if(wfKeys.length>0){
-      if(y>240){doc.addPage();y=20}
-      doc.setFontSize(14);doc.setFont(undefined,'bold');
-      doc.text('6. WORKFLOW',14,y);y+=8;
-      doc.setFontSize(9);doc.setFont(undefined,'normal');
-      wfKeys.sort().forEach(function(k){
-        var w=wfData[k];
-        var st=w.state||'CON';
-        doc.text(k+': '+st+(w.by?' ('+w.by+')':''),20,y);y+=5;
-        if(y>275){doc.addPage();y=20}
+    // ── AVANCE POR PV ──
+    if(y>220){doc.addPage();y=20}
+    setC(cDark);doc.setFontSize(13);doc.setFont(undefined,'bold');
+    doc.text('AVANCE POR PV',M,y);y+=6;
+    
+    var pvMap={};
+    Object.keys(MASTER_DATA).forEach(function(code){
+      var d=MASTER_DATA[code];
+      if(!pvMap[d.pv])pvMap[d.pv]={total:0,hinc:0,rech:0};
+    });
+    Object.keys(conData).forEach(function(fc){
+      var code=fc.replace(/_/g,'.');
+      var d=MASTER_DATA[code];if(!d)return;
+      var con=conData[fc];
+      var cfg=PCFG[d.type];if(!cfg)return;
+      var faces=[{px:'fm',pils:cfg.motor}];
+      if(cfg.conducida)faces.push({px:'fc',pils:cfg.conducida});
+      faces.forEach(function(f){
+        f.pils.forEach(function(p,i){
+          if(!pvMap[d.pv])pvMap[d.pv]={total:0,hinc:0,rech:0};
+          pvMap[d.pv].total++;
+          var est=con[f.px+'_'+i+'_estado']||'';
+          if(est==='hincada')pvMap[d.pv].hinc++;
+          else if(est==='rechazo')pvMap[d.pv].rech++;
+        });
       });
+    });
+    
+    // Table header
+    fillR(M,y,CW,7,[4,120,87]);
+    doc.setTextColor(255,255,255);doc.setFontSize(7);doc.setFont(undefined,'bold');
+    doc.text('PV',M+3,y+5);doc.text('HINCADOS',M+35,y+5);doc.text('RECHAZOS',M+65,y+5);doc.text('TOTAL',M+95,y+5);doc.text('% AVANCE',M+120,y+5);doc.text('PROGRESO',M+148,y+5);
+    y+=7;
+    
+    Object.keys(pvMap).sort(function(a,b){return parseInt(a)-parseInt(b)}).forEach(function(pv,i){
+      if(y>275){doc.addPage();y=20}
+      var p=pvMap[pv];if(p.total===0)return;
+      var pct=Math.round(p.hinc/p.total*100);
+      if(i%2===0)fillR(M,y,CW,6,cLightGray);
+      setC(cDark);doc.setFontSize(7);doc.setFont(undefined,'normal');
+      doc.text('PV'+String(pv).padStart(2,'0'),M+3,y+4.5);
+      setC(cGreen);doc.text(String(p.hinc),M+42,y+4.5);
+      setC(cRed);doc.text(String(p.rech),M+72,y+4.5);
+      setC(cDark);doc.text(String(p.total),M+100,y+4.5);
+      doc.setFont(undefined,'bold');doc.text(pct+'%',M+125,y+4.5);doc.setFont(undefined,'normal');
+      drawBar(M+145,y+1,37,4,pct,cLightGray,pct>=80?cGreen:pct>=50?cAmber:cRed);
+      y+=6;
+    });
+    
+    // Footer on each page
+    var pages=doc.getNumberOfPages();
+    for(var pg=1;pg<=pages;pg++){
+      doc.setPage(pg);
+      doc.setFillColor(cBrand[0],cBrand[1],cBrand[2]);doc.rect(0,290,W,7,'F');
+      doc.setTextColor(255,255,255);doc.setFontSize(6);
+      doc.text('ISFV ATALAYA — Checklist Solar v2.8 — XAMAI / X-ELIO',M,294);
+      doc.text('Pág. '+pg+'/'+pages,W-M,294,{align:'right'});
     }
     
     doc.save('Informe_Semanal_'+now.toISOString().substring(0,10)+'.pdf');
-    showToast('PDF generado','var(--ac)');
+    showToast('✅ PDF generado','var(--ac)');
   });
 }
 
