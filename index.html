@@ -1749,10 +1749,10 @@ function exportAlturas(pv,sub){
   showToast('⏳ Generando alturas...','var(--info)');
   Promise.all([
     fetchTemplate(TPL_ALTURAS),
-    db.ref('construction').once('value')
+    db.ref('quality').once('value')
   ]).then(function(results){
     var buf=results[0];
-    var conAll=results[1].val()||{};
+    var qualAll=results[1].val()||{};
 
     return JSZip.loadAsync(buf).then(function(zip){
       return zip.file('xl/workbook.xml').async('string').then(function(wbXml){
@@ -1818,13 +1818,13 @@ function exportAlturas(pv,sub){
               var pvSub=pv+'/'+(sub||0);var rowNum=16;
 
               codes.forEach(function(code){
-                var d=MASTER_DATA[code];var con=conAll[fbCode(code)]||conAll[code]||{};
+                var d=MASTER_DATA[code];var qd=qualAll[fbCode(code)]||qualAll[code]||{};
                 var cfg=PCFG[d.type];if(!cfg)return;
                 var isLargo=(d.type==='bifila_largo'||d.type==='monofila_largo');
                 var pNamesM=isLargo?PILAR_NAMES_LARGO_M:PILAR_NAMES_CORTO_M;
                 var pNamesC=isLargo?PILAR_NAMES_LARGO_C:PILAR_NAMES_CORTO_C;
-                function addR(pName,fila,profKey){
-                  var alt=con[profKey];var nom=getNomLen(pName);var R=String(rowNum);
+                function addR(pName,fila,altKey){
+                  var alt=qd[altKey];var nom=getNomLen(pName);var R=String(rowNum);
                   var rw=doc.createElementNS(ns,'row');rw.setAttribute('r',R);
                   rw.appendChild(mkCell(doc,'C'+R,pvSub,'s'));
                   rw.appendChild(mkCell(doc,'D'+R,d.num,'n'));
@@ -1837,8 +1837,8 @@ function exportAlturas(pv,sub){
                   rw.appendChild(mkCell(doc,'M'+R,'+K'+R+'/L'+R,'f'));
                   sheetData.appendChild(rw);rowNum++;
                 }
-                cfg.motor.forEach(function(pL,i){addR(pNamesM[i],'Motora','fm_'+i+'_profundidad')});
-                if(cfg.conducida){cfg.conducida.forEach(function(pL,i){addR(pNamesC[i],'Conducida','fc_'+i+'_profundidad')})}
+                cfg.motor.forEach(function(pL,i){addR(pNamesM[i],'Motora','fm_'+i+'_altura')});
+                if(cfg.conducida){cfg.conducida.forEach(function(pL,i){addR(pNamesC[i],'Conducida','fc_'+i+'_altura')})}
               });
 
               ssDoc.documentElement.setAttribute('count',String(ssCount));
@@ -1955,7 +1955,7 @@ function exportChecklist(pv,sub){
                     setCellDoc(doc,4,3,pvZona,false);
                     setCellDoc(doc,5,3,d.num,true);
                     if(d.mx)setCellDoc(doc,6,4,d.mx,true);
-                    if(d.my)setCellDoc(doc,6,14,d.my,true);
+                    if(d.my)setCellDoc(doc,6,8,d.my,true);
 
                     var faces=[{px:'fm',pils:cfg.motor,mR:31,cR:39,dR:37}];
                     if(hasCond)faces.push({px:'fc',pils:cfg.conducida,mR:57,cR:65,dR:63});
