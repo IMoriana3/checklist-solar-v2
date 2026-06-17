@@ -1,5 +1,5 @@
-const CACHE_NAME = 'checklist-v2-v5';
-const urlsToCache = ['./', './index.html', './master.js', './master_con.js', './manifest.json'];
+const CACHE_NAME = 'checklist-v2-v6';
+const urlsToCache = ['./', './index.html', './master.js', './master_con.js', './manifest.json', './favicon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(urlsToCache)).then(() => self.skipWaiting()));
