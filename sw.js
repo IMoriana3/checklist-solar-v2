@@ -1,4 +1,4 @@
-const CACHE_NAME = 'checklist-v2-v6';
+const CACHE_NAME = 'checklist-v2-v7';
 const urlsToCache = ['./', './index.html', './master.js', './master_con.js', './manifest.json', './favicon.svg'];
 
 self.addEventListener('install', e => {
