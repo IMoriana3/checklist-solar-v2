@@ -33,7 +33,7 @@ input[type=file]{margin:8px 0;font-size:13px;color:var(--td)}
 </head>
 <body>
 
-<h1>📥 Importar datos v1 → Firebase</h1>
+<h1>📥 Importar datos de la versión anterior</h1>
 <div class="sub">Migra los datos de Google Sheets al nuevo sistema Firebase</div>
 
 <div class="card">
@@ -55,9 +55,9 @@ input[type=file]{margin:8px 0;font-size:13px;color:var(--td)}
 </div>
 
 <div class="card">
-  <h2>3. Importar a Firebase</h2>
-  <button class="btn btn-primary" id="btnImport" disabled onclick="doImport()">🚀 Importar todo a Firebase</button>
-  <button class="btn btn-danger" id="btnClear" onclick="if(confirm('¿Borrar TODOS los datos de Firebase?'))clearFirebase()" style="margin-top:8px">🗑️ Limpiar Firebase (peligroso)</button>
+  <h2>3. Guardar datos importados</h2>
+  <button class="btn btn-primary" id="btnImport" disabled onclick="doImport()">🚀 Importar todos los datos</button>
+  <button class="btn btn-danger" id="btnClear" onclick="if(confirm('¿Borrar TODOS los datos de Firebase?'))clearFirebase()" style="margin-top:8px">🗑️ Borrar todos los datos (peligroso)</button>
 </div>
 
 <div class="log" id="log">Esperando archivo...</div>
