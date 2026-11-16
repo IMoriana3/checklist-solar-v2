@@ -1,0 +1,38 @@
+{
+  "procedencia": "Medida con tests/arnes_navegador.cjs sobre main@29330e92 (código anterior a B2.1), 16/11/2026. Derivado nuestro: si se regenera, se dice por qué.",
+  "sinSesion": {
+    "titulo": "Control de obra — Factiun",
+    "textos": [
+      "XAMAI · X-ELIO",
+      "ISFV ATALAYA"
+    ],
+    "rutas": [
+      "keepSynced ",
+      "on .info/connected"
+    ],
+    "escrituras": 0,
+    "errores": []
+  },
+  "conSesion": {
+    "titulo": "Control de obra — Factiun",
+    "textos": [],
+    "rutas": [
+      "keepSynced ",
+      "on .info/connected",
+      "on punchlist",
+      "on workflow",
+      "once con_log",
+      "once construction",
+      "once construction/TR01_001",
+      "once punchlist",
+      "once quality",
+      "once quality/TR01_001",
+      "once timers/TR01_001/fm_0",
+      "once users",
+      "once users/u-banco",
+      "once workflow"
+    ],
+    "escrituras": 0,
+    "errores": []
+  }
+}

@@ -1,0 +1,22 @@
+name: bancos
+# Bancos de la app (multiplanta, B2.1): perfiles de planta, guard de textos fijos y arranque en
+# navegador con Firebase falso (sin red ni datos reales). Ejecutores de GitHub; el repo es público.
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  bancos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Playwright y Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Bancos
+        run: bash tests/correr.sh
