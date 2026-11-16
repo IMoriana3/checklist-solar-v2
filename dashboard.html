@@ -8,7 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-<script src="master.js"></script>
+<script src="plantas.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'DM Sans',sans-serif;background:#080a10;color:#e8eaed;min-height:100vh}
@@ -108,7 +108,7 @@ body{font-family:'DM Sans',sans-serif;background:#080a10;color:#e8eaed;min-heigh
 <div class="topbar">
   <div class="topbar-logo">
     <div class="icon">⚡</div>
-    <div><h1>ISFV ATALAYA</h1><div class="sub">Dashboard · XAMAI / X-ELIO</div></div>
+    <div><h1 id="dashNombre"></h1><div class="sub" id="dashSub"></div></div>
   </div>
   <div class="live off" id="st">Conectando...</div>
 </div>
@@ -124,14 +124,16 @@ body{font-family:'DM Sans',sans-serif;background:#080a10;color:#e8eaed;min-heigh
 </div>
 
 <script>
+if(!window.PLANTA){document.body.textContent='Planta no disponible: '+(window.PLANTA_ERROR||[]).join(' · ');throw new Error('PLANTA no disponible')}
 firebase.initializeApp({apiKey:"AIzaSyBHKN65MLHScTNN-L5HwfvWqafAkfsFiAU",authDomain:"construccionxamai.firebaseapp.com",databaseURL:"https://construccionxamai-default-rtdb.europe-west1.firebasedatabase.app",projectId:"construccionxamai",storageBucket:"construccionxamai.firebasestorage.app",messagingSenderId:"71667188901",appId:"1:71667188901:web:663c605a1fbe53a3caf94c"});
-var db=firebase.database(),auth=firebase.auth(),D={con:null,wf:null,pl:null,qual:null};
+document.getElementById('dashNombre').textContent=PLANTA.nombre;document.getElementById('dashSub').textContent='Dashboard · '+PLANTA.piePdf;
+var db=PlantasObra.dbDePlanta(firebase.database(),PLANTA),auth=firebase.auth(),D={con:null,wf:null,pl:null,qual:null};
 
 function sw(t,btn){document.getElementById('pcon').style.display=t==='con'?'block':'none';document.getElementById('pcal').style.display=t==='cal'?'block':'none';document.querySelectorAll('.tab').forEach(function(b){b.className='tab'});btn.className='tab on'}
 
 auth.onAuthStateChanged(function(user){
   if(user){st('Cargando...','off');loadAll()}
-  else{st('Login','off');document.getElementById('pcon').innerHTML='<div class="login"><div style="font-size:40px;margin-bottom:16px">⚡</div><div style="font-size:20px;font-weight:700;margin-bottom:4px">Dashboard ATALAYA</div><div style="font-size:12px;color:#64748b;margin-bottom:24px">Inicia sesión para ver los datos</div><input id="em" placeholder="Email"><input id="pw" type="password" placeholder="Contraseña"><button onclick="doL()">Entrar</button><div id="err" style="color:#ef4444;font-size:12px;margin-top:8px"></div></div>'}
+  else{st('Login','off');document.getElementById('pcon').innerHTML='<div class="login"><div style="font-size:40px;margin-bottom:16px">⚡</div><div style="font-size:20px;font-weight:700;margin-bottom:4px">Dashboard '+PlantasObra.html(PLANTA.nombreCorto)+'</div><div style="font-size:12px;color:#64748b;margin-bottom:24px">Inicia sesión para ver los datos</div><input id="em" placeholder="Email"><input id="pw" type="password" placeholder="Contraseña"><button onclick="doL()">Entrar</button><div id="err" style="color:#ef4444;font-size:12px;margin-top:8px"></div></div>'}
 });
 function doL(){var e=document.getElementById('em').value,p=document.getElementById('pw').value;document.getElementById('err').textContent='Conectando...';auth.signInWithEmailAndPassword(e,p).catch(function(x){document.getElementById('err').textContent=x.message})}
 function st(t,cls){var e=document.getElementById('st');e.textContent=t;e.className='live '+cls}
