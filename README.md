@@ -47,8 +47,9 @@ nombre y marca, el plan de obra, el fichero de seguidores y **los soportes de ca
 `bash tests/correr.sh` (Node 22, Playwright con Chromium y `jszip@3.10.1`, el mismo que carga la app).
 Comprueban que Atalaya lee y escribe exactamente las mismas rutas que antes del cambio
 (`tests/fixtures/linea_base_atalaya.json`), que una planta desconocida o sin soportes no toca la base,
-que una planta nueva sólo usa `plantas/<id>/` y que **lo que nadie ha registrado no aparece como
-registrado**, ni en pantalla ni en los Excel exportados (`tests/test_no_registrado.cjs`).
+que una planta nueva sólo usa `plantas/<id>/`, que **lo que nadie ha registrado no aparece como
+registrado**, ni en pantalla ni en los Excel exportados (`tests/test_no_registrado.cjs`), y que **lo
+escrito sin conexión sobrevive a cerrar la app** (`tests/test_cola.cjs`, `tests/test_sin_conexion.cjs`).
 Firebase se sustituye por un doble de prueba: no hay red ni datos reales.
 
 ## Notas
@@ -62,8 +63,15 @@ Firebase se sustituye por un doble de prueba: no hay red ni datos reales.
   alturas, una hinca sin altura salía con profundidad y % de hincado calculados. Ya no pasa.
 - Pendiente de decidir: el Excel de alturas lleva, en la hoja «Informes POT», tres ensayos de
   arranque de PV14-2 (seguidores 9, 23 y 35) en cualquier exportación, sea del PV que sea.
-- Sincronización en tiempo real (`keepSynced`). Ojo: en el navegador es **en memoria**, no en disco; lo
-  pendiente sin conexión se pierde si se cierra la app antes de reconectar (auditoría Construct F0, H-04).
+- **Sin conexión no se pierde nada al cerrar la app** (auditoría Construct F0, H-04, 16/11/2026). El SDK
+  web de Firebase sólo guarda en memoria lo escrito sin cobertura («The Firebase Realtime Database web
+  APIs do not persist data offline outside of the session»), así que antes se perdía si se cerraba la app
+  antes de reconectar. Ahora `cola.js` apunta cada cambio en el dispositivo hasta que el servidor lo
+  confirma, y al volver a entrar el mismo usuario sube lo pendiente (y lo dice). Repetir un cambio deja
+  el mismo valor; las entradas de registro conservan su clave, así que no se duplican. Lo rechazado por
+  el servidor no se reintenta: se avisa. Si el navegador no deja guardar (modo privado), lo avisa.
+- La app se abre sin conexión si el navegador conserva en su caché las librerías de Firebase (el service
+  worker no las guarda): pendiente de comprobar en un móvil real.
 - Pendiente: rediseñar el Dashboard con tema claro estilo Amelia (ref. brochure pág. 6).
 
 *Factiun · proyecto interno.*

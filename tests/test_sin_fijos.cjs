@@ -31,6 +31,11 @@ const idx = fs.readFileSync(path.join(RAIZ, 'index.html'), 'utf8');
 check('el importador de la v1 (escribe en la raíz) sólo se ofrece a la planta de legado', /if\(PLANTA\.legadoRaiz\)h\+='<a href="import\.html"/.test(idx));
 const sw = fs.readFileSync(path.join(RAIZ, 'sw.js'), 'utf8');
 check('el service worker guarda plantas.js para abrir sin conexión', sw.includes("'./plantas.js'"));
+check('el service worker guarda cola.js para abrir sin conexión', sw.includes("'./cola.js'"));
+check('index.html carga cola.js después de plantas.js y antes del código de la app', idx.indexOf('<script src="plantas.js"></script>') < idx.indexOf('<script src="cola.js"></script>') &&
+  idx.indexOf('<script src="cola.js"></script>') < idx.indexOf('firebase.initializeApp('));
+check('index.html: todas las escrituras pasan por la cola (db = la fachada envuelta)', /var db=ColaObra\.envolver\(DB_PLANTA,COLA\);/.test(idx) &&
+  (idx.match(/var db=/g) || []).length === 1);
 
 console.log(ok + ' comprobaciones OK' + (fallos ? ' · ' + fallos + ' FALLAN' : ''));
-if (fallos || ok < 36) process.exitCode = 1;
+if (fallos || ok < 39) process.exitCode = 1;

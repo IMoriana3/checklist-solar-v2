@@ -17,6 +17,7 @@
 
 <!-- Master data -->
 <script src="plantas.js"></script>
+<script src="cola.js"></script>
 
 <style>
 /* Piel «Célula» (la de la portada y el SCADA): tipografías autoalojadas (OFL), ámbar Factiun como único color de emisión y paleta de estado aparte */
@@ -160,10 +161,19 @@ firebase.initializeApp({
   appId:"1:71667188901:web:663c605a1fbe53a3caf94c"
 });
 
-var db=PlantasObra.dbDePlanta(firebase.database(),PLANTA); // rutas de ESTA planta (Atalaya: la raíz, como siempre)
+// Rutas de ESTA planta (Atalaya: la raíz, como siempre). Las escrituras pasan por la cola local (cola.js):
+// lo escrito sin conexión queda guardado en el dispositivo hasta que el servidor lo confirma (H-04).
+var DB_PLANTA=PlantasObra.dbDePlanta(firebase.database(),PLANTA);
+var COLA=ColaObra.crear({
+  almacen:(function(){try{return window.localStorage}catch(e){return null}})(),
+  clave:'colaObra:'+PLANTA.id,
+  usuario:function(){var u=firebase.auth().currentUser;return u?u.uid:null},
+  aviso:function(t){showToast('⚠️ '+t,'var(--warn)')}
+});
+var db=ColaObra.envolver(DB_PLANTA,COLA);
 DBG('Firebase DB ready');
-// Mantiene sincronizados EN MEMORIA los datos de la planta. El SDK web de Realtime Database no guarda
-// en disco: lo pendiente sin conexión se pierde si se cierra la app (auditoría Construct F0, H-04).
+// Mantiene sincronizados EN MEMORIA los datos de la planta: el SDK web de Realtime Database no guarda en
+// disco. Lo escrito sin conexión no se pierde al cerrar la app porque lo guarda la cola local (cola.js, H-04).
 try{db.ref().keepSynced(true)}catch(e){}
 
 // Connection state monitoring
@@ -298,6 +308,9 @@ auth.onAuthStateChanged(function(user){
       V.screen='modesel';
       R();
       showToast('Bienvenido, '+U.name,'var(--ac)');
+      // Lo que se escribió sin conexión y no llegó a subir antes de cerrar la app (H-04)
+      var nPend=COLA.reenviar(DB_PLANTA,user.uid);
+      if(nPend)showToast('⏫ Subiendo '+nPend+' cambio'+(nPend>1?'s':'')+' que quedaron sin enviar','var(--info)');
       initListeners();
     DBG('Profile loaded: '+(data?JSON.stringify(data).substring(0,100):'null'));
     }).catch(function(authErr){

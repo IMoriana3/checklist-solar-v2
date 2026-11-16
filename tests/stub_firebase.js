@@ -3,9 +3,21 @@
  * Registra cada operación sobre la base en window.__FB_LOG como {op, path} y guarda en memoria.
  * La sesión la decide el banco antes de cargar: window.__FB_USER (null = sin sesión) y
  * window.__FB_SEED (datos iniciales, p. ej. el perfil del usuario).
+ * Sin conexión (window.__FB_OFFLINE): como el SDK web, las escrituras se ven en local pero el servidor
+ * no las confirma (la promesa no se resuelve) y mueren con la página. Lo que el servidor confirma se
+ * apunta en window.__FB_SERVIDOR como {op, path, val}. window.__FB_RECHAZA: prefijos de ruta que el
+ * servidor rechaza (como unas reglas sin permiso).
  */
 (function () {
   var LOG = window.__FB_LOG = [];
+  var SERVIDOR = window.__FB_SERVIDOR = [];
+  var OFF = !!window.__FB_OFFLINE, RECHAZA = window.__FB_RECHAZA || [];
+  function confirmar(op, path, val) {
+    if (RECHAZA.some(function (p) { return path.indexOf(p) === 0; })) { var e = new Error('PERMISSION_DENIED: banco'); e.code = 'PERMISSION_DENIED'; return Promise.reject(e); }
+    if (OFF) return new Promise(function () {});
+    SERVIDOR.push({ op: op, path: path, val: val === undefined ? null : JSON.parse(JSON.stringify(val)) });
+    return Promise.resolve();
+  }
   var ROOT = window.__FB_STORE = JSON.parse(JSON.stringify(window.__FB_SEED || {}));
   var n = 0;
   function parts(p) { return (p || '').split('/').filter(Boolean); }
@@ -29,18 +41,21 @@
   Ref.prototype.once = function (ev, cb) { log('once', this.path); var s = new Snap(this.path); if (typeof cb === 'function') cb(s); return Promise.resolve(s); };
   Ref.prototype.on = function (ev, cb) {
     log('on', this.path);
-    var s = this.path === '.info/connected' ? new Snap(this.path, true) : new Snap(this.path);
+    var s = this.path === '.info/connected' ? new Snap(this.path, !OFF) : new Snap(this.path);
     if (typeof cb === 'function') setTimeout(function () { cb(s); }, 0);
     return cb;
   };
   Ref.prototype.off = function () {};
-  Ref.prototype.set = function (v) { log('set', this.path); put(this.path, v); return Promise.resolve(); };
-  Ref.prototype.remove = function () { log('remove', this.path); put(this.path, null); return Promise.resolve(); };
-  Ref.prototype.update = function (o) { var self = this; Object.keys(o || {}).forEach(function (k) { log('update', join(self.path, k)); put(join(self.path, k), o[k]); }); return Promise.resolve(); };
+  Ref.prototype.set = function (v) { log('set', this.path); put(this.path, v); return confirmar('set', this.path, v); };
+  Ref.prototype.remove = function () { log('remove', this.path); put(this.path, null); return confirmar('remove', this.path, null); };
+  Ref.prototype.update = function (o) { var self = this; Object.keys(o || {}).forEach(function (k) { log('update', join(self.path, k)); put(join(self.path, k), o[k]); }); return confirmar('update', this.path, o); };
+  /* Como el SDK: devuelve la referencia hija (con clave única) y, si hay valor, la escribe. */
   Ref.prototype.push = function (v) {
-    var k = 'k' + (++n), r = new Ref(join(this.path, k)); log('push', this.path);
-    if (v !== undefined) put(r.path, v);
-    var pr = Promise.resolve(r); pr.key = k; pr.ref = r; return pr;
+    var k = '-K' + Date.now().toString(36) + (++n), r = new Ref(join(this.path, k)); log('push', this.path);
+    var p = Promise.resolve();
+    if (v !== undefined) { put(r.path, v); p = confirmar('set', r.path, v); }
+    r.then = function (a, b) { return p.then(a, b); }; r.catch = function (b) { return p.catch(b); };
+    return r;
   };
   Ref.prototype.keepSynced = function () { log('keepSynced', this.path); };
   function database() { return { ref: function (p) { return new Ref(p || ''); }, goOnline: function () {}, goOffline: function () {} }; }
