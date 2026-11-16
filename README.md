@@ -34,20 +34,34 @@ nombre y marca, el plan de obra, el fichero de seguidores y **los soportes de ca
 - **Sin soportes no se abre:** si una planta no declara cuántos soportes tiene cada tipo de
   seguidor, la app lo dice y no la abre, porque tendría que inventarlos. Antes, a falta de datos,
   el plan suponía 15.000 hincas.
+- **Plantillas de Excel por obra:** las plantillas llevan dentro el proyecto, el cliente, las
+  tolerancias y las firmas (las de Atalaya dicen ISFV ATALAYA, X-ELIO, Villena, Eiffage). Cada perfil
+  declara las suyas en `plantillas` (las de una planta nueva, en `templates/<id>/`); con `null` esa
+  exportación no se ofrece y la app explica por qué. Nunca se usan las de otra obra.
 - **Para dar de alta una planta:** añade su perfil a `PLANTAS` y su fichero de seguidores (mismo
   formato que `master.js`). `tests/test_plantas.cjs` dice qué falta, si falta algo.
 - **Requisito en Firebase (consola):** las reglas de seguridad tienen que permitir leer y escribir
   bajo `plantas/<id>/` a los usuarios de esa planta. No viven en este repo.
 
 ## Tests
-`bash tests/correr.sh` (Node 22 + Playwright con Chromium). Comprueban que Atalaya lee y escribe
-exactamente las mismas rutas que antes del cambio (`tests/fixtures/linea_base_atalaya.json`), que una
-planta desconocida o sin soportes no toca la base y que una planta nueva sólo usa `plantas/<id>/`.
+`bash tests/correr.sh` (Node 22, Playwright con Chromium y `jszip@3.10.1`, el mismo que carga la app).
+Comprueban que Atalaya lee y escribe exactamente las mismas rutas que antes del cambio
+(`tests/fixtures/linea_base_atalaya.json`), que una planta desconocida o sin soportes no toca la base,
+que una planta nueva sólo usa `plantas/<id>/` y que **lo que nadie ha registrado no aparece como
+registrado**, ni en pantalla ni en los Excel exportados (`tests/test_no_registrado.cjs`).
 Firebase se sustituye por un doble de prueba: no hay red ni datos reales.
 
 ## Notas
 - Planta: **ISFV Atalaya** · Cliente: **X-ELIO**.
 - Las rutas de Firebase usan **guiones bajos, nunca puntos** (no permitidos en claves de Realtime Database).
+- **Lo no registrado se ve vacío** (auditoría Construct F0, H-05, arreglado el 16/11/2026). En
+  comprobaciones, montaje y módulos un punto sin rellenar ya no sale con «SÍ» (o el valor esperado)
+  marcado: sale sin marcar y con «sin rellenar». En la base nunca se guardó nada que nadie pulsara.
+- **Excel exportados antes del 16/11/2026: revisarlos.** La plantilla del checklist es un checklist
+  ya relleno (seguidor 3 de PV14/02) y sus valores salían en lo que nadie había medido; en el de
+  alturas, una hinca sin altura salía con profundidad y % de hincado calculados. Ya no pasa.
+- Pendiente de decidir: el Excel de alturas lleva, en la hoja «Informes POT», tres ensayos de
+  arranque de PV14-2 (seguidores 9, 23 y 35) en cualquier exportación, sea del PV que sea.
 - Sincronización en tiempo real (`keepSynced`). Ojo: en el navegador es **en memoria**, no en disco; lo
   pendiente sin conexión se pierde si se cierra la app antes de reconectar (auditoría Construct F0, H-04).
 - Pendiente: rediseñar el Dashboard con tema claro estilo Amelia (ref. brochure pág. 6).

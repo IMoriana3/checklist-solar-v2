@@ -13,6 +13,8 @@
  *    los datos de Atalaya ni de otra planta. Los perfiles de usuario («users/…») son comunes.
  *  · Selección con ?planta=<id>. Sin parámetro, Atalaya (las URL de hoy siguen funcionando).
  *    Una planta desconocida NO cae en Atalaya: la app se para antes de tocar la base.
+ *  · Las plantillas de Excel son de la obra: llevan dentro su proyecto, cliente, tolerancias y firmas.
+ *    Una planta sin plantillas no exporta Excel; nunca se le ponen las de otra (B3, 16/11/2026).
  */
 (function (global) {
   'use strict';
@@ -33,6 +35,9 @@
       legadoRaiz: true,
       datos: { seguidores: 'master.js', soportes: 'master_con.js' },
       plan: { inicio: '2025-06-02', fin: '2026-09-15' },
+      // Plantillas de Excel de la obra (dicen ISFV ATALAYA, X-ELIO, Villena y las firmas de Eiffage y X-Elio).
+      // Las de una planta nueva van en templates/<id>/; null = esa exportación no existe para la planta.
+      plantillas: { alturas: 'templates/plantilla_alturas.xlsx', checklist: 'templates/plantilla_checklist.xlsx' },
       // Soportes (pilares) por tipo de seguidor, tal como los fijó la v1 del checklist de Atalaya.
       soportesPorTipo: {
         monofila_corto: { motor: ['2N-MP', '1N-MP', 'MP', '1S-MP', '2S-MP'], conducida: null },
@@ -63,6 +68,10 @@
     if (!/^data:image\/(png|jpeg|svg\+xml);base64,[A-Za-z0-9+\/=]+$/.test(p.logo || '')) out.push('logo inválido');
     if (!p.datos || !texto(p.datos.seguidores)) out.push('falta el fichero de seguidores');
     if (!p.plan || !FECHA.test(p.plan.inicio || '') || !FECHA.test(p.plan.fin || '') || p.plan.inicio > p.plan.fin) out.push('plan de obra inválido');
+    var pl = p.plantillas, dirPl = p.legadoRaiz === true ? 'templates/' : 'templates/' + p.id + '/';
+    function plantillaValida(v) { return v === null || (texto(v) && v.indexOf(dirPl) === 0 && /^[^\/]+\.xlsx$/.test(v.slice(dirPl.length))); }
+    if (pl === undefined) out.push('faltan las «plantillas» de Excel de la obra (null si no tiene; nunca las de otra)');
+    else if (pl !== null && !(typeof pl === 'object' && plantillaValida(pl.alturas) && plantillaValida(pl.checklist))) out.push('plantillas inválidas: alturas y checklist, cada una null o un .xlsx en ' + dirPl);
     var spt = p.soportesPorTipo;
     if (!spt || typeof spt !== 'object' || !Object.keys(spt).length) out.push(MSG_SOPORTES);
     else Object.keys(spt).forEach(function (t) {

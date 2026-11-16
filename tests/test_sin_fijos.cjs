@@ -10,7 +10,8 @@ function check(nombre, cond) { if (cond) ok++; else { fallos++; console.error('F
 
 const PAGINAS = ['index.html', 'dashboard.html'];
 const PROHIBIDOS = ['ISFV ATALAYA', 'XAMAI', 'X-ELIO', 'Xamai Global', "'2025-06-02'", "'2026-09-15'", "'1.756 trackers'",
-  'totalPilars=15000', 'var PCFG={', 'base64,', '<script src="master.js">', '<script src="master_con.js">', 'Dashboard ATALAYA'];
+  'totalPilars=15000', 'var PCFG={', 'base64,', '<script src="master.js">', '<script src="master_con.js">', 'Dashboard ATALAYA',
+  "'templates/plantilla_"];
 
 for (const p of PAGINAS) {
   const t = fs.readFileSync(path.join(RAIZ, p), 'utf8');
@@ -32,4 +33,4 @@ const sw = fs.readFileSync(path.join(RAIZ, 'sw.js'), 'utf8');
 check('el service worker guarda plantas.js para abrir sin conexión', sw.includes("'./plantas.js'"));
 
 console.log(ok + ' comprobaciones OK' + (fallos ? ' · ' + fallos + ' FALLAN' : ''));
-if (fallos || ok < 34) process.exitCode = 1;
+if (fallos || ok < 36) process.exitCode = 1;

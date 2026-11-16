@@ -6,30 +6,14 @@
  *  4. Una planta nueva escribe y lee sólo bajo plantas/<id>/ (usuarios y .info aparte) y enseña su marca.
  * Uso: node tests/test_arranque.cjs
  */
-const fs = require('fs');
-const path = require('path');
-const { medir } = require('./arnes_navegador.cjs');
+const { medir, conPerfil, PLANTA_DEMO: DEMO, MASTER_DEMO: DEMO_MASTER } = require('./arnes_navegador.cjs');
 
 const BASE = require('./fixtures/linea_base_atalaya.json');
-const PLANTAS_SRC = fs.readFileSync(path.join(__dirname, '..', 'plantas.js'), 'utf8');
 let ok = 0, fallos = 0;
 function check(nombre, cond, detalle) { if (cond) ok++; else { fallos++; console.error('FALLA · ' + nombre + (detalle ? '\n  ' + detalle : '')); } }
 const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-/* plantas.js con un perfil más, servido sólo en este banco (doble de prueba, no toca el fichero real). */
-function conPerfil(perfil) {
-  const marca = '  var PLANTAS = {\n';
-  if (!PLANTAS_SRC.includes(marca)) throw new Error('no encuentro el registro de plantas en plantas.js');
-  return PLANTAS_SRC.replace(marca, marca + '    ' + JSON.stringify(perfil.id) + ': ' + JSON.stringify(perfil) + ',\n');
-}
-const LOGO = 'data:image/png;base64,iVBORw0KGgo=';
-const DEMO = {
-  id: 'demo', nombre: 'PLANTA DEMO', nombreCorto: 'DEMO', marca: 'CLIENTE DEMO', piePdf: 'CLIENTE DEMO', empresa: 'Empresa demo',
-  codigoExport: 'DEMO', logoAlt: 'Demo', logo: LOGO, prefijoDatos: 'plantas/demo/', legadoRaiz: false,
-  datos: { seguidores: 'demo_master.js', soportes: null }, plan: { inicio: '2026-01-01', fin: '2026-12-31' },
-  soportesPorTipo: { tipo_demo: { motor: ['1N', 'MP', '1S'], conducida: null } }
-};
-const DEMO_MASTER = 'var MASTER_DATA = {"TR01.001":{"pv":1,"num":1,"type":"tipo_demo","n":10,"mx":0,"my":0,"sub":0}};\n';
+// Planta de prueba (perfil y seguidores) y conPerfil(): en el arnés, compartidos con los demás bancos.
 
 (async () => {
   // 1 · Atalaya idéntica a la línea base
