@@ -28,9 +28,13 @@ function servidor(dir, extra) {
   });
 }
 
-/* Un escenario: opcionalmente con sesión (usuario admin sembrado) y pantallas que recorrer. */
-async function escenario(browser, base, { query = '', usuario = null, pantallas = [] } = {}) {
-  const ctx = await browser.newContext({ serviceWorkers: 'block' });
+const USUARIO_BANCO = { uid: 'u-banco', email: 'banco@prueba.invalid' };
+
+/* Página con Firebase falso. semilla: datos iniciales de la base, además del perfil del usuario.
+ * libs: {trozo de URL: código} sirve librerías de CDN reales (p. ej. JSZip para exportar); el resto
+ * de scripts externos se sirven vacíos. offline: el «servidor» no confirma ninguna escritura.
+ * rechaza: prefijos de ruta cuyas escrituras rechaza el «servidor». */
+async function prepararPagina(ctx, base, { usuario = null, semilla = {}, libs = {}, offline = false, rechaza = [] } = {}) {
   const page = await ctx.newPage();
   const errores = [];
   page.on('pageerror', (e) => errores.push(String(e.message || e)));
@@ -38,13 +42,23 @@ async function escenario(browser, base, { query = '', usuario = null, pantallas 
     const u = route.request().url();
     if (u.startsWith(base)) return route.continue();
     if (u.includes('firebase-app-compat')) return route.fulfill({ contentType: 'application/javascript', body: STUB });
+    const lib = Object.keys(libs).find((k) => u.includes(k));
+    if (lib) return route.fulfill({ contentType: 'application/javascript', body: libs[lib] });
     if (u.endsWith('.js')) return route.fulfill({ contentType: 'application/javascript', body: '' });
     return route.fulfill({ contentType: 'text/css', body: '' });
   });
-  await page.addInitScript((u) => {
+  await page.addInitScript(({ u, semilla, offline, rechaza }) => {
     window.__FB_USER = u;
-    window.__FB_SEED = u ? { users: { [u.uid]: { name: 'Banco', role: 'admin' } } } : {};
-  }, usuario);
+    window.__FB_SEED = Object.assign(u ? { users: { [u.uid]: { name: 'Banco', role: 'admin' } } } : {}, semilla);
+    window.__FB_OFFLINE = offline; window.__FB_RECHAZA = rechaza;
+  }, { u: usuario, semilla, offline, rechaza });
+  return { page, errores };
+}
+
+/* Un escenario: opcionalmente con sesión (usuario admin sembrado) y pantallas que recorrer. */
+async function escenario(browser, base, { query = '', usuario = null, pantallas = [] } = {}) {
+  const ctx = await browser.newContext({ serviceWorkers: 'block' });
+  const { page, errores } = await prepararPagina(ctx, base, { usuario });
   await page.goto(base + '/index.html' + query, { waitUntil: 'load' });
   await page.waitForTimeout(300);
   for (const p of pantallas) {
@@ -82,7 +96,7 @@ async function medir({ dir = RAIZ, extra = null, query = '' } = {}) {
   const browser = await chromium.launch();
   try {
     const sinSesion = await escenario(browser, base, { query });
-    const conSesion = await escenario(browser, base, { query, usuario: { uid: 'u-banco', email: 'banco@prueba.invalid' }, pantallas: PANTALLAS });
+    const conSesion = await escenario(browser, base, { query, usuario: USUARIO_BANCO, pantallas: PANTALLAS });
     return { sinSesion, conSesion };
   } finally {
     await browser.close();
@@ -90,7 +104,45 @@ async function medir({ dir = RAIZ, extra = null, query = '' } = {}) {
   }
 }
 
-module.exports = { medir };
+/* Para bancos interactivos: abre la app con sesión de admin y datos sembrados y devuelve la página.
+ * otraPagina() abre la app otra vez en el MISMO navegador (mismo almacenamiento local), como quien
+ * cierra la app y la vuelve a abrir. Quien la abre llama a cerrar() al terminar. */
+async function abrirApp({ dir = RAIZ, extra = null, query = '', usuario = USUARIO_BANCO, semilla = {}, libs = {}, offline = false, rechaza = [] } = {}) {
+  const s = await servidor(dir, extra);
+  const base = 'http://127.0.0.1:' + s.address().port;
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const abrir = async (o) => {
+      const r = await prepararPagina(ctx, base, Object.assign({ usuario, semilla, libs, offline, rechaza }, o || {}));
+      await r.page.goto(base + '/index.html' + query, { waitUntil: 'load' });
+      await r.page.waitForTimeout(300);
+      return r;
+    };
+    const { page, errores } = await abrir();
+    return { page, errores, otraPagina: abrir, cerrar: async () => { await browser.close(); s.close(); } };
+  } catch (e) {
+    await browser.close(); s.close(); throw e;
+  }
+}
+
+/* plantas.js con un perfil más, servido sólo en el banco (doble de prueba: no toca el fichero real). */
+function conPerfil(perfil) {
+  const src = fs.readFileSync(path.join(RAIZ, 'plantas.js'), 'utf8');
+  const marca = '  var PLANTAS = {\n';
+  if (!src.includes(marca)) throw new Error('no encuentro el registro de plantas en plantas.js');
+  return src.replace(marca, marca + '    ' + JSON.stringify(perfil.id) + ': ' + JSON.stringify(perfil) + ',\n');
+}
+/* Una planta de prueba bien declarada, con un seguidor y sin plantillas de Excel. */
+const PLANTA_DEMO = {
+  id: 'demo', nombre: 'PLANTA DEMO', nombreCorto: 'DEMO', marca: 'CLIENTE DEMO', piePdf: 'CLIENTE DEMO', empresa: 'Empresa demo',
+  codigoExport: 'DEMO', logoAlt: 'Demo', logo: 'data:image/png;base64,iVBORw0KGgo=', prefijoDatos: 'plantas/demo/', legadoRaiz: false,
+  datos: { seguidores: 'demo_master.js', soportes: null }, plan: { inicio: '2026-01-01', fin: '2026-12-31' }, plantillas: null,
+  soportesPorTipo: { tipo_demo: { motor: ['1N', 'MP', '1S'], conducida: null } }
+};
+const MASTER_DEMO = 'var MASTER_DATA = {"TR01.001":{"pv":1,"num":1,"type":"tipo_demo","n":10,"mx":0,"my":0,"sub":0}};\n';
+
+module.exports = { medir, abrirApp, conPerfil, PLANTA_DEMO, MASTER_DEMO };
 
 if (require.main === module) {
   medir().then((r) => {

@@ -17,6 +17,7 @@
 
 <!-- Master data -->
 <script src="plantas.js"></script>
+<script src="cola.js"></script>
 
 <style>
 /* Piel «Célula» (la de la portada y el SCADA): tipografías autoalojadas (OFL), ámbar Factiun como único color de emisión y paleta de estado aparte */
@@ -160,10 +161,19 @@ firebase.initializeApp({
   appId:"1:71667188901:web:663c605a1fbe53a3caf94c"
 });
 
-var db=PlantasObra.dbDePlanta(firebase.database(),PLANTA); // rutas de ESTA planta (Atalaya: la raíz, como siempre)
+// Rutas de ESTA planta (Atalaya: la raíz, como siempre). Las escrituras pasan por la cola local (cola.js):
+// lo escrito sin conexión queda guardado en el dispositivo hasta que el servidor lo confirma (H-04).
+var DB_PLANTA=PlantasObra.dbDePlanta(firebase.database(),PLANTA);
+var COLA=ColaObra.crear({
+  almacen:(function(){try{return window.localStorage}catch(e){return null}})(),
+  clave:'colaObra:'+PLANTA.id,
+  usuario:function(){var u=firebase.auth().currentUser;return u?u.uid:null},
+  aviso:function(t){showToast('⚠️ '+t,'var(--warn)')}
+});
+var db=ColaObra.envolver(DB_PLANTA,COLA);
 DBG('Firebase DB ready');
-// Mantiene sincronizados EN MEMORIA los datos de la planta. El SDK web de Realtime Database no guarda
-// en disco: lo pendiente sin conexión se pierde si se cierra la app (auditoría Construct F0, H-04).
+// Mantiene sincronizados EN MEMORIA los datos de la planta: el SDK web de Realtime Database no guarda en
+// disco. Lo escrito sin conexión no se pierde al cerrar la app porque lo guarda la cola local (cola.js, H-04).
 try{db.ref().keepSynced(true)}catch(e){}
 
 // Connection state monitoring
@@ -298,6 +308,9 @@ auth.onAuthStateChanged(function(user){
       V.screen='modesel';
       R();
       showToast('Bienvenido, '+U.name,'var(--ac)');
+      // Lo que se escribió sin conexión y no llegó a subir antes de cerrar la app (H-04)
+      var nPend=COLA.reenviar(DB_PLANTA,user.uid);
+      if(nPend)showToast('⏫ Subiendo '+nPend+' cambio'+(nPend>1?'s':'')+' que quedaron sin enviar','var(--info)');
       initListeners();
     DBG('Profile loaded: '+(data?JSON.stringify(data).substring(0,100):'null'));
     }).catch(function(authErr){
@@ -709,6 +722,8 @@ var MONT_ITEMS=[
   {id:'tok_ok',label:'Tracker revisado y OK',grp:'Confirmación'}
 ];
 
+// Lo que nadie ha registrado se enseña vacío y con esta etiqueta, nunca con un valor marcado (auditoría Construct F0, H-05)
+var SIN_RELLENAR=' <span style="font-size:9px;color:var(--warn)">sin rellenar</span>';
 var MOD_ITEMS=[
   {id:'mod_disp_vigas',label:'Disposición vigas con módulo',def:'SI',grp:'Vigas+Módulos'},
   {id:'mod_union_sb',label:'Unión SB-Módulo solar',def:'SI',grp:'Vigas+Módulos'},
@@ -1516,13 +1531,13 @@ function rQualTracker(a){
         }else{
           // okno (SI/NO) fields in MED — only show as selected if actually saved (v != null)
           var hasVal=(v!=null);
-          h+='<div class="card" style="padding:12px;margin-bottom:6px"><div style="font-size:13px;margin-bottom:6px">'+f.label+(hasVal?'':' <span style="font-size:9px;color:var(--warn)">sin rellenar</span>')+'</div><div style="display:flex;gap:4px">';
+          h+='<div class="card" style="padding:12px;margin-bottom:6px"><div style="font-size:13px;margin-bottom:6px">'+f.label+(hasVal?'':SIN_RELLENAR)+'</div><div style="display:flex;gap:4px">';
           ['SI','NO'].forEach(function(opt){
             var sel3=hasVal&&(v===opt);
             var bg=sel3?(opt===f.def?'rgba(34,197,94,.2)':'rgba(239,68,68,.2)'):'var(--sf)';
             var bd2=sel3?(opt===f.def?'var(--ok)':'var(--no)'):'var(--bd)';
             var oc=viewOnly?'':('setQF(\''+code+'\',\''+k+'\',\''+opt+'\');setTimeout(function(){R()},400)');
-            h+='<button onclick="'+oc+'" style="flex:1;padding:8px;border-radius:8px;border:2px solid '+bd2+';background:'+bg+';color:var(--tx);font-weight:700;font-size:13px;cursor:'+(viewOnly?'default':'pointer')+'">'+opt+'</button>';
+            h+='<button onclick="'+oc+'" aria-pressed="'+sel3+'" style="flex:1;padding:8px;border-radius:8px;border:2px solid '+bd2+';background:'+bg+';color:var(--tx);font-weight:700;font-size:13px;cursor:'+(viewOnly?'default':'pointer')+'">'+opt+'</button>';
           });h+='</div></div>';
         }
       });
@@ -1530,14 +1545,14 @@ function rQualTracker(a){
       // COMP fields
       h+='<div class="stitle">Comprobaciones — '+pils[pi]+'</div>';
       COMP.forEach(function(f){
-        var k=px+'_'+pi+'_'+f.id;var v=qd[k];if(v==null)v=f.def;
+        var k=px+'_'+pi+'_'+f.id;var v=qd[k];
         var isBad=(v!=null&&v!==f.def);
         h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:var(--sf);border:1px solid '+(isBad?'var(--no)':'var(--bd)')+';margin-bottom:4px">';
-        h+='<div style="flex:1;font-size:12px;color:'+(isBad?'var(--no)':'var(--tx)')+'">'+f.label+'</div>';
+        h+='<div style="flex:1;font-size:12px;color:'+(isBad?'var(--no)':'var(--tx)')+'">'+f.label+(v!=null?'':SIN_RELLENAR)+'</div>';
         h+='<div style="display:flex;gap:3px">';
         var opts=['SI','NO'];if(f.def==='N/A')opts.push('N/A');
         opts.forEach(function(opt){var sel3=(v===opt);var bg=sel3?(opt===f.def?'rgba(34,197,94,.2)':'rgba(239,68,68,.2)'):'transparent';var bd2=sel3?(opt===f.def?'var(--ok)':'var(--no)'):'var(--bd)';
-          h+='<button onclick="'+(viewOnly?'':'setQFnow(\''+code+'\',\''+k+'\',\''+opt+'\')')+'" style="padding:4px 10px;border-radius:6px;border:1px solid '+bd2+';background:'+bg+';color:var(--tx);font-size:11px;font-weight:600;cursor:'+(viewOnly?'default':'pointer')+'">'+opt+'</button>';
+          h+='<button onclick="'+(viewOnly?'':'setQFnow(\''+code+'\',\''+k+'\',\''+opt+'\')')+'" aria-pressed="'+sel3+'" style="padding:4px 10px;border-radius:6px;border:1px solid '+bd2+';background:'+bg+';color:var(--tx);font-size:11px;font-weight:600;cursor:'+(viewOnly?'default':'pointer')+'">'+opt+'</button>';
         });h+='</div></div>';
       });
     }
@@ -1548,13 +1563,13 @@ function rQualTracker(a){
       Object.keys(grps).forEach(function(g){
         h+='<div class="card" style="margin-bottom:8px"><div style="font-weight:700;font-size:12px;color:var(--ac);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">'+g+'</div>';
         grps[g].forEach(function(f){
-          var k='mont_'+f.id;var v=qd[k];if(v==null)v='SI';
+          var k='mont_'+f.id;var v=qd[k];
           var isBad=(v==='NO');
           h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)">';
-          h+='<div style="flex:1;font-size:12px;color:'+(isBad?'var(--no)':'var(--tx)')+'">'+f.label+'</div>';
+          h+='<div style="flex:1;font-size:12px;color:'+(isBad?'var(--no)':'var(--tx)')+'">'+f.label+(v!=null?'':SIN_RELLENAR)+'</div>';
           h+='<div style="display:flex;gap:3px">';
           ['SI','NO'].forEach(function(opt){var sel3=(v===opt);var bg=sel3?(opt==='SI'?'rgba(34,197,94,.2)':'rgba(239,68,68,.2)'):'transparent';var bd2=sel3?(opt==='SI'?'var(--ok)':'var(--no)'):'var(--bd)';
-            h+='<button onclick="'+(viewOnly?'':'setQFnow(\''+code+'\',\''+k+'\',\''+opt+'\')')+'" style="padding:4px 10px;border-radius:6px;border:1px solid '+bd2+';background:'+bg+';color:var(--tx);font-size:11px;font-weight:600;cursor:'+(viewOnly?'default':'pointer')+'">'+opt+'</button>';
+            h+='<button onclick="'+(viewOnly?'':'setQFnow(\''+code+'\',\''+k+'\',\''+opt+'\')')+'" aria-pressed="'+sel3+'" style="padding:4px 10px;border-radius:6px;border:1px solid '+bd2+';background:'+bg+';color:var(--tx);font-size:11px;font-weight:600;cursor:'+(viewOnly?'default':'pointer')+'">'+opt+'</button>';
           });h+='</div></div>';
         });h+='</div>';
       });
@@ -1566,13 +1581,13 @@ function rQualTracker(a){
       Object.keys(grps2).forEach(function(g){
         h+='<div class="card" style="margin-bottom:8px"><div style="font-weight:700;font-size:12px;color:var(--ac);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">'+g+'</div>';
         grps2[g].forEach(function(f){
-          var k='mod_'+f.id;var v=qd[k];if(v==null)v=f.def;
+          var k='mod_'+f.id;var v=qd[k];
           var isBad=(v!=null&&v!==f.def);
           h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)">';
-          h+='<div style="flex:1;font-size:12px;color:'+(isBad?'var(--no)':'var(--tx)')+'">'+f.label+'</div>';
+          h+='<div style="flex:1;font-size:12px;color:'+(isBad?'var(--no)':'var(--tx)')+'">'+f.label+(v!=null?'':SIN_RELLENAR)+'</div>';
           h+='<div style="display:flex;gap:3px">';
           ['SI','NO'].forEach(function(opt){var sel3=(v===opt);var bg=sel3?(opt===f.def?'rgba(34,197,94,.2)':'rgba(239,68,68,.2)'):'transparent';var bd2=sel3?(opt===f.def?'var(--ok)':'var(--no)'):'var(--bd)';
-            h+='<button onclick="'+(viewOnly?'':'setQFnow(\''+code+'\',\''+k+'\',\''+opt+'\')')+'" style="padding:4px 10px;border-radius:6px;border:1px solid '+bd2+';background:'+bg+';color:var(--tx);font-size:11px;font-weight:600;cursor:'+(viewOnly?'default':'pointer')+'">'+opt+'</button>';
+            h+='<button onclick="'+(viewOnly?'':'setQFnow(\''+code+'\',\''+k+'\',\''+opt+'\')')+'" aria-pressed="'+sel3+'" style="padding:4px 10px;border-radius:6px;border:1px solid '+bd2+';background:'+bg+';color:var(--tx);font-size:11px;font-weight:600;cursor:'+(viewOnly?'default':'pointer')+'">'+opt+'</button>';
           });h+='</div></div>';
         });h+='</div>';
       });
@@ -1692,10 +1707,12 @@ function renderResumen(){
 // ============================================================
 // EXPORT EXCEL — Template-based (preserves exact format)
 // ============================================================
-// Template URLs (hosted on GitHub Pages alongside the app)
+// Plantillas de Excel de la obra (proyecto, cliente, tolerancias y firmas van dentro): las declara el perfil
+// de la planta en plantas.js. Sin plantilla no se exporta; nunca se usa la de otra obra (B3).
 var TPL_BASE=(function(){var s=document.currentScript?document.currentScript.src:location.href;return s.substring(0,s.lastIndexOf('/')+1)})();
-var TPL_ALTURAS='templates/plantilla_alturas.xlsx';
-var TPL_CHECKLIST='templates/plantilla_checklist.xlsx';
+var TPL_ALTURAS=PLANTA.plantillas&&PLANTA.plantillas.alturas||null;
+var TPL_CHECKLIST=PLANTA.plantillas&&PLANTA.plantillas.checklist||null;
+function sinPlantilla(que){return '<div style="font-size:12px;color:var(--warn);padding:8px 10px;border:1px dashed var(--warn);border-radius:8px">'+PlantasObra.html(PLANTA.nombreCorto)+' no tiene plantilla de '+que+'. Sin ella no se exporta: la de otra obra llevaría su proyecto, su cliente y sus firmas.</div>'}
 
 // Pilar name mapping for alturas Excel: app index → pilar name in Excel
 var PILAR_NAMES_LARGO_M=['4n','3n','2n','1n','MP','1s','2s','3s','4s'];
@@ -1766,6 +1783,7 @@ function calcAccumForExport(qd,px,piIdx,mpIdx,type){
 // JSZip — manipulates XML directly to preserve exact format
 // ============================================================
 function exportAlturas(pv,sub){
+  if(!TPL_ALTURAS){showToast('⚠️ '+PLANTA.nombreCorto+' no tiene plantilla de alturas','var(--warn)');return}
   showToast('⏳ Generando alturas...','var(--info)');
   console.log('exportAlturas: pv='+pv+' sub='+sub);
   Promise.all([
@@ -1881,9 +1899,9 @@ function exportAlturas(pv,sub){
                   rw.appendChild(mkCell(doc,'F'+R,fila,'s'));
                   if(alt!=null){rw.appendChild(mkCell(doc,'G'+R,parseFloat(alt),'n'));filledCount++}
                   rw.appendChild(mkCell(doc,'J'+R,nomLen,'n'));
-                  rw.appendChild(mkCell(doc,'K'+R,'+J'+R+'-G'+R,'f'));
+                  rw.appendChild(mkCell(doc,'K'+R,'IF(G'+R+'="","",J'+R+'-G'+R+')','f')); // sin altura medida, vacío
                   rw.appendChild(mkCell(doc,'L'+R,profNom,'n'));
-                  rw.appendChild(mkCell(doc,'M'+R,'+K'+R+'/L'+R,'f'));
+                  rw.appendChild(mkCell(doc,'M'+R,'IF(K'+R+'="","",K'+R+'/L'+R+')','f'));
                   sheetData.appendChild(rw);rowNum++;
                 }
                 cfg.motor.forEach(function(pL,i){addR(pNamesM[i],'Motora','fm_'+i+'_altura',false)});
@@ -1920,6 +1938,7 @@ function exportAlturas(pv,sub){
 // JSZip — one tab per tracker, copies template per sheet
 // ============================================================
 function exportChecklist(pv,sub){
+  if(!TPL_CHECKLIST){showToast('⚠️ '+PLANTA.nombreCorto+' no tiene plantilla de checklist','var(--warn)');return}
   showToast('⏳ Generando checklist...','var(--info)');
   Promise.all([
     fetchTemplate(TPL_CHECKLIST),
@@ -2029,6 +2048,10 @@ function exportChecklist(pv,sub){
                     var hasCond=(cfg.conducida!=null);var mpIdx=isLargo?4:2;
 
                     var doc=parser.parseFromString(tplXml,'application/xml');
+                    // La plantilla es un checklist ya relleno (seguidor 3 de PV14/02). Se vacían sus zonas de datos
+                    // (mediciones y comprobaciones de las dos filas) para que cada hoja lleve sólo lo registrado de
+                    // su seguidor y lo no medido salga vacío (auditoría Construct F0, H-05)
+                    [[31,37],[39,54],[57,63],[65,80]].forEach(function(z){for(var r=z[0];r<=z[1];r++)for(var cc=6;cc<=16;cc++)clearCellValue(doc,r,cc)});
                     setCellDoc(doc,4,3,pvZona,false);
                     setCellDoc(doc,5,3,d.num,true);
                     if(d.mx)setCellDoc(doc,6,4,d.mx,true);
@@ -2141,8 +2164,8 @@ function showExportModal(){
   h+='<div class="stitle">Subcampo</div>';
   h+='<select class="sel" id="exp-sub"><option value="0">Todos</option></select>';
   h+='<div style="margin-top:16px;display:flex;flex-direction:column;gap:8px">';
-  h+='<button class="btn btn-primary" onclick="doExportAlturas()" style="font-size:14px">📋 Exportar Alturas (XXX-PV)</button>';
-  h+='<button class="btn btn-info" onclick="doExportChecklist()" style="font-size:14px">📝 Exportar Checklist Calidad</button>';
+  h+=TPL_ALTURAS?'<button class="btn btn-primary" onclick="doExportAlturas()" style="font-size:14px">📋 Exportar Alturas (XXX-PV)</button>':sinPlantilla('alturas');
+  h+=TPL_CHECKLIST?'<button class="btn btn-info" onclick="doExportChecklist()" style="font-size:14px">📝 Exportar Checklist Calidad</button>':sinPlantilla('checklist de calidad');
   h+='<button class="btn btn-ghost" onclick="document.getElementById(\'export-modal\').remove()" style="font-size:13px">Cancelar</button>';
   h+='</div></div></div>';
   document.body.insertAdjacentHTML('beforeend',h);

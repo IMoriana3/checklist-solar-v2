@@ -1,6 +1,8 @@
 name: bancos
-# Bancos de la app (multiplanta, B2.1): perfiles de planta, guard de textos fijos y arranque en
-# navegador con Firebase falso (sin red ni datos reales). Ejecutores de GitHub; el repo es público.
+# Bancos de la app: perfiles de planta, guard de textos fijos, arranque en navegador (B2.1), lo no
+# registrado en pantalla y en los Excel exportados (B3) y la cola de escrituras sin conexión (H-04).
+# Firebase falso: sin red ni datos reales.
+# Ejecutores de GitHub; el repo es público.
 on:
   push:
     branches: [main]
@@ -14,9 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Playwright y Chromium
+      - name: Playwright, Chromium y JSZip (el mismo 3.10.1 que carga la app, para leer los Excel exportados)
         run: |
-          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          npm install --no-save --no-audit --no-fund playwright@1.63.0 jszip@3.10.1
           npx playwright install --with-deps chromium
       - name: Bancos
         run: bash tests/correr.sh

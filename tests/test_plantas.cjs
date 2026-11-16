@@ -56,7 +56,7 @@ check('Atalaya conserva marca, plan y datos en la raíz', () => {
   assert.equal(ATALAYA.prefijoDatos, ''); assert.equal(ATALAYA.legadoRaiz, true);
 });
 
-function nueva(cambios) { return Object.assign(clon(ATALAYA), { id: 'nueva', legadoRaiz: false, prefijoDatos: 'plantas/nueva/' }, cambios || {}); }
+function nueva(cambios) { return Object.assign(clon(ATALAYA), { id: 'nueva', legadoRaiz: false, prefijoDatos: 'plantas/nueva/', plantillas: null }, cambios || {}); }
 check('una planta nueva bien declarada es válida', () => assert.deepEqual(clon(P.problemas(nueva())), []));
 check('SIN soportes por tipo la planta no se abre (no se inventan)', () => {
   assert.match(P.problemas(nueva({ soportesPorTipo: null })).join(' '), /soportes/);
@@ -70,6 +70,15 @@ check('una planta nueva no puede escribir en la raíz ni en el prefijo de otra',
   assert.match(P.problemas(nueva({ prefijoDatos: 'plantas/otra/' })).join(' '), /prefijoDatos/);
 });
 check('el legado sólo vale en la raíz', () => assert.match(P.problemas(Object.assign(clon(ATALAYA), { prefijoDatos: 'plantas/atalaya/' })).join(' '), /raíz/));
+check('Atalaya conserva sus plantillas de Excel', () => assert.deepEqual(clon(ATALAYA.plantillas),
+  { alturas: 'templates/plantilla_alturas.xlsx', checklist: 'templates/plantilla_checklist.xlsx' }));
+check('plantillas: hay que declararlas (o null) y una planta nueva no puede usar las de otra obra', () => {
+  // Mensajes distintos a propósito: el primero dice qué falta (la clave), el segundo qué está mal.
+  assert.match(P.problemas(nueva({ plantillas: undefined })).join(' '), /faltan las «plantillas»/);
+  assert.match(P.problemas(nueva({ plantillas: { alturas: 'templates/plantilla_alturas.xlsx', checklist: null } })).join(' '), /plantillas inválidas.*templates\/nueva\//);
+  assert.match(P.problemas(nueva({ plantillas: { alturas: 'templates/nueva/alturas.xlsx' } })).join(' '), /plantillas inválidas/);
+  assert.deepEqual(clon(P.problemas(nueva({ plantillas: { alturas: 'templates/nueva/alturas.xlsx', checklist: null } }))), []);
+});
 check('plan con fin antes del inicio no vale', () => assert.match(P.problemas(nueva({ plan: { inicio: '2026-02-01', fin: '2026-01-01' } })).join(' '), /plan/));
 
 function rawFalso() { const rutas = []; return { rutas, raw: { ref: (p) => { rutas.push(p === undefined ? '(raíz)' : p); return {}; } } }; }
@@ -89,4 +98,4 @@ check('1756 se escribe «1.756» como antes en el PDF', () => {
 check('el texto de un perfil se escapa al meterlo en HTML', () => assert.equal(P.html('<b>"x"&\'y\''), '&lt;b&gt;&quot;x&quot;&amp;&#39;y&#39;'));
 
 console.log(ok + ' comprobaciones OK');
-if (ok < 17) { console.error('menos comprobaciones de las esperadas: el vacío no es un PASS'); process.exitCode = 1; }
+if (ok < 19) { console.error('menos comprobaciones de las esperadas: el vacío no es un PASS'); process.exitCode = 1; }
