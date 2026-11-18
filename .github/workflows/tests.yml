@@ -1,7 +1,7 @@
 name: bancos
 # Bancos de la app: perfiles de planta, guard de textos fijos, arranque en navegador (B2.1), lo no
-# registrado en pantalla y en los Excel exportados (B3) y la cola de escrituras sin conexión (H-04).
-# Firebase falso: sin red ni datos reales.
+# registrado en pantalla y en los Excel exportados (B3), la cola de escrituras sin conexión (H-04) y la
+# vista aérea de cada seguidor con su aviso (test_vista_aerea). Firebase falso: sin red ni datos reales.
 # Ejecutores de GitHub; el repo es público.
 on:
   push:
