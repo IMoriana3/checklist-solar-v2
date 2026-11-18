@@ -4,12 +4,15 @@
  *     formado no avisa (bifila y monofila, largo y corto) y cada defecto da su aviso y sólo el suyo
  *     («N» al sur, soporte fuera de línea, vano, cardán desplazado, motora movida, soportes que faltan,
  *     seguidor sin soportes). Sin fichero de soportes no hay tarjeta. El plegado se recuerda.
- *  2. Con los datos reales de Atalaya: avisan los 1.756; 57 sólo por N/S, como mide la auditoría de
- *     SolarGPTfull (docs/audit/OBRA-VISTA-AEREA__SolarGPTfull.md); TR01.015 y TR01.016, sus avisos.
+ *  2. Atalaya: con una muestra fija del fichero ANTERIOR, el chequeo sigue cazando sus defectos (TR01.015,
+ *     TR01.016, TR01.048; auditoría en SolarGPTfull, docs/audit/OBRA-VISTA-AEREA__SolarGPTfull.md). Con el
+ *     RECONSTRUIDO (18/11) no avisa ninguno y cada seguidor lleva su confianza (57 / 952 / 747).
  *  3. llToUtm frente a pyproj 3.7.2 / PROJ 9.5.1 (EPSG:32630 → EPSG:4326), a menos de 1 cm, y coherente
  *     con utmToLL de la app.
  *  4. En el navegador, con Firebase falso:
  *     - la tarjeta en Construcción y en Calidad › Cimentaciones, con el estado de cada soporte y el elegido;
+ *     - la confianza del número (confirmado, pista, deducido) en la cabecera y en su nota, y en la ficha lo
+ *       deducido de cada soporte (perfil, profundidades, posición);
  *     - tocar un soporte (o Intro) lo abre;
  *     - el aviso, y el plegado que se recuerda al volver a abrir;
  *     - el GPS emulado cae sobre el soporte, y lejos dice a cuánto está;
@@ -113,17 +116,24 @@ for (const [nombre, s, esperado] of casos) check('aviso de «' + nombre + '»: s
   check('SVG: el estado de cada soporte llega a su dibujo', /data-i="0" data-clase="ok"/.test(svg) && /data-i="1" data-clase="no"/.test(svg) && /data-i="2" data-clase="vacio"/.test(svg));
 }
 
-// ── 2 · Datos reales de Atalaya
+// ── 2 · Datos de Atalaya
+// 2a · El fichero ANTERIOR (muestra fija de main ea9a38b): el chequeo tiene que seguir cazando sus defectos.
+{
+  const M = JSON.parse(leer('tests/fixtures/soportes_anteriores_muestra.json'));
+  const v = va(M.datos, M.soportes);
+  check('fichero anterior, TR01.015: sólo los «N» al sur, en las dos filas', igual(v.chequeo('TR01.015').map((a) => a.tipo), ['ns', 'ns']));
+  check('fichero anterior, TR01.016: vano, N al sur, fila fuera de línea, vano y motora/cardán a 66 m', igual(v.chequeo('TR01.016').map((a) => a.tipo), ['vano', 'ns', 'recta', 'vano', 'enfrente']) &&
+    v.chequeo('TR01.016').some((a) => a.texto.includes('66,26 m')));
+  check('fichero anterior, monofila TR01.048: sus soportes se encuentran por su nombre («MOTORA», «4N»…)', !v.chequeo('TR01.048').some((a) => a.tipo === 'faltan') && v.filas('TR01.048')[0].pts.every(Boolean));
+}
+// 2b · El fichero RECONSTRUIDO (18/11/2026): ningún seguidor avisa y cada uno lleva la confianza de su número.
 {
   const v = va(C.MASTER_DATA, C.MASTER_CON);
-  const codes = Object.keys(C.MASTER_DATA); let sinAviso = 0, soloNS = 0;
-  for (const c of codes) { const t = v.chequeo(c).map((a) => a.tipo); if (!t.length) sinAviso++; else if (t.every((x) => x === 'ns')) soloNS++; }
-  check('Atalaya: los 1.756 seguidores avisan', codes.length === 1756 && sinAviso === 0, sinAviso + ' sin aviso');
-  check('Atalaya: 57 sólo por los «N» al sur, como la auditoría (1.699 no forman su tipo)', soloNS === 57, String(soloNS));
-  check('TR01.015: sólo los «N» al sur, en las dos filas', igual(v.chequeo('TR01.015').map((a) => a.tipo), ['ns', 'ns']));
-  check('TR01.016: vano, N al sur, fila fuera de línea, vano y motora/cardán a 66 m', igual(v.chequeo('TR01.016').map((a) => a.tipo), ['vano', 'ns', 'recta', 'vano', 'enfrente']) &&
-    v.chequeo('TR01.016').some((a) => a.texto.includes('66,26 m')));
-  check('monofila (TR01.048): sus soportes se encuentran por su nombre («MOTORA», «4N»…)', !v.chequeo('TR01.048').some((a) => a.tipo === 'faltan') && v.filas('TR01.048')[0].pts.every(Boolean));
+  const codes = Object.keys(C.MASTER_DATA), conAviso = codes.filter((c) => v.chequeo(c).length);
+  check('Atalaya reconstruida: ninguno de los 1.756 seguidores avisa (forma, vanos, N al norte, motora)', codes.length === 1756 && conAviso.length === 0, conAviso.slice(0, 5).join(' '));
+  const n = {}; codes.forEach((c) => { n[C.MASTER_DATA[c].conf] = (n[C.MASTER_DATA[c].conf] || 0) + 1; });
+  check('confianza: 57 confirmados, 952 con pista y 747 deducidos (todos tienen una)', igual(n, { confirmado: 57, pista: 952, deducido: 747 }), JSON.stringify(n));
+  check('TR01.015 confirmado, TR01.016 con pista, TR01.022 deducido', C.MASTER_DATA['TR01.015'].conf === 'confirmado' && C.MASTER_DATA['TR01.016'].conf === 'pista' && C.MASTER_DATA['TR01.022'].conf === 'deducido');
 }
 
 // ── 3 · Coordenadas
@@ -157,6 +167,8 @@ const leerVista = (page) => page.evaluate(() => {
     n: sops.length, clases: sops.map((g) => g.getAttribute('data-fila') + ':' + g.getAttribute('data-i') + ':' + g.getAttribute('data-clase')),
     sel: sops.filter((g) => g.getAttribute('data-sel') === '1').map((g) => g.getAttribute('data-fila') + ':' + g.getAttribute('data-i')),
     aviso: av ? av.textContent : null, badge: !!document.getElementById('va-badge'), expandida: cab ? cab.getAttribute('aria-expanded') : null,
+    conf: (document.getElementById('va-confianza') || document.getElementById('va-conf-badge') || { getAttribute: () => null }).getAttribute('data-conf'),
+    confBadge: (document.getElementById('va-conf-badge') || {}).textContent || null, confNota: (document.getElementById('va-confianza') || {}).textContent || null,
     escrituras: (window.__FB_LOG || []).filter((x) => /^(set|update|push|remove)$/.test(x.op)).length
   };
 });
@@ -175,7 +187,8 @@ const cuenta = (clases, c) => clases.filter((x) => x.endsWith(':' + c)).length;
     check('Construcción: 4 hincados, 1 rechazo y 13 sin hincar, como la base', cuenta(r.clases, 'ok') === 4 && cuenta(r.clases, 'no') === 1 && cuenta(r.clases, 'vacio') === 13 &&
       r.clases.includes('motor:6:no') && r.clases.includes('conducida:0:ok'), JSON.stringify(r.clases));
     check('Construcción: el elegido es el de la pantalla (motora)', igual(r.sel, ['motor:4']), JSON.stringify(r.sel));
-    check('Construcción: el aviso dice que los «N» quedan al sur, en las dos filas', r.badge && r.aviso && (r.aviso.match(/queda al sur/g) || []).length === 2 && r.aviso.includes('bifila largo'), r.aviso);
+    check('Construcción, TR01.015: sin aviso de forma, marcado «✓ confirmado» y con su nota', !r.badge && r.aviso === null && r.conf === 'confirmado' && r.confBadge === '✓ confirmado' &&
+      /^✓ Seguidor confirmado/.test(r.confNota || ''), JSON.stringify(r));
     await page.click('#va-svg .va-sop[data-fila="conducida"][data-i="2"]');
     await page.waitForTimeout(350);
     r = await leerVista(page);
@@ -185,15 +198,25 @@ const cuenta = (clases, c) => clases.filter((x) => x.endsWith(':' + c)).length;
     await page.keyboard.press('Enter');
     await page.waitForTimeout(350);
     check('con el teclado (Intro) también se abre', igual(await page.evaluate(() => [V.conFila, V.conPi]), ['motor', 1]));
-    await pantalla(page, 'contractor', { conTr: 'TR01.016', conPi: 0, conFila: 'motor' });
+    await pantalla(page, 'contractor', { conTr: 'TR01.016', conPi: 4, conFila: 'motor' });
     r = await leerVista(page);
-    check('TR01.016: el aviso dice que motora y cardán no están enfrentados y que una fila no está en línea',
-      r.aviso && r.aviso.includes('no están enfrentados') && r.aviso.includes('no están en línea') && r.aviso.includes('66,26'), r.aviso);
+    check('TR01.016: «número deducido» y la nota de pista clara con su número', !r.badge && r.conf === 'pista' && r.confBadge === 'número deducido' &&
+      /^Número deducido con pista clara/.test(r.confNota || '') && r.confNota.includes('TR01.016'), JSON.stringify(r));
+    const ficha = await page.evaluate(() => Array.from(document.querySelectorAll('.va-ded')).length);
+    check('ficha de la motora de TR01.016: perfil y profundidades marcados «deducido» (3), la cimentación no', ficha === 3, String(ficha));
+    await pantalla(page, 'contractor', { conTr: 'TR01.022', conPi: 0, conFila: 'motor' });
+    r = await leerVista(page);
+    check('TR01.022: «⚠️ número sin confirmar» y la nota que pide comprobarlo con el plano', r.conf === 'deducido' && r.confBadge === '⚠️ número sin confirmar' &&
+      /^⚠️ Número sin confirmar/.test(r.confNota || '') && r.confNota.includes('plano'), JSON.stringify(r));
+    await pantalla(page, 'contractor', { conTr: 'TR14.056', conPi: 1, conFila: 'motor' });
+    const pos = await page.evaluate(() => document.body.innerText.includes('Posición deducida'));
+    check('ficha del soporte de H-27 (TR14.056, 3N-MP): dice que su posición es deducida', pos);
+    await pantalla(page, 'contractor', { conTr: 'TR01.016', conPi: 0, conFila: 'motor' });
     // Plegar y recordarlo
     await page.click('#va-cab');
     await page.waitForTimeout(350);
     r = await leerVista(page);
-    check('plegada: sin dibujo, con la cabecera y el «no cuadra» a la vista', r.tarjeta && !r.svg && r.badge && r.expandida === 'false', JSON.stringify(r));
+    check('plegada: sin dibujo, con la cabecera y la marca de confianza a la vista', r.tarjeta && !r.svg && r.confBadge === 'número deducido' && r.expandida === 'false', JSON.stringify(r));
     const s2 = await app.otraPagina();
     await pantalla(s2.page, 'contractor', { conTr: 'TR01.015', conPi: 0, conFila: 'motor' });
     const r2 = await leerVista(s2.page);

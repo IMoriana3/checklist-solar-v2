@@ -633,6 +633,8 @@ function vaApp(){
     almacen:(function(){try{return window.localStorage}catch(e){return null}})()});
   return VA;
 }
+// Ficha: un atributo que la reconstrucción tuvo que deducir (el fichero anterior lo ponía por el nombre del soporte).
+function vaDed(s,k){return s&&s.ded&&s.ded.indexOf(k)>=0?' <span class="va-ded" title="Deducido en la reconstrucción del fichero de soportes" style="font-size:9px;font-weight:600;color:var(--warn)">deducido</span>':''}
 function vaTocaCon(fila,i){V.conFila=fila;V.conPi=i;R()}
 function vaTocaCal(fila,i){V.qFila=fila;V.qPi=i;R()}
 function vaPliega(){var va=vaApp();va.plegar(!va.plegada());R()}
@@ -1066,11 +1068,12 @@ function rConTracker(a){
         },function(){},{enableHighAccuracy:true});
       }
       h+='<div id="gps-check" style="margin-bottom:8px"></div>';
+      if(supData.xyDed)h+='<div style="margin-bottom:8px;font-size:11px;color:var(--warn)">📍 Posición deducida: el fichero anterior tenía este soporte con la coordenada de otro (se ha repuesto con el vano de proyecto).</div>';
       h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">';
-      h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">PERFIL</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+supData.pf+'</div></div>';
-      h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">CIMENTACIÓN</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+supData.ci+'</div></div>';
-      h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">PROF. HINCADO</div><div style="font-size:14px;font-weight:700;color:var(--ac)">'+supData.ph.toFixed(2)+' m</div></div>';
-      h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">PROF. MÍNIMA</div><div style="font-size:14px;font-weight:700;color:var(--warn)">'+supData.pm.toFixed(2)+' m</div></div>';
+      h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">PERFIL</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+supData.pf+vaDed(supData,'pf')+'</div></div>';
+      h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">CIMENTACIÓN</div><div style="font-size:14px;font-weight:700;margin-top:2px">'+supData.ci+vaDed(supData,'ci')+'</div></div>';
+      h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">PROF. HINCADO</div><div style="font-size:14px;font-weight:700;color:var(--ac)">'+supData.ph.toFixed(2)+' m'+vaDed(supData,'pm')+'</div></div>';
+      h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">PROF. MÍNIMA</div><div style="font-size:14px;font-weight:700;color:var(--warn)">'+supData.pm.toFixed(2)+' m'+vaDed(supData,'pm')+'</div></div>';
       h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">Z TERRENO</div><div style="font-size:14px;font-weight:700">'+supData.z.toFixed(2)+' m</div></div>';
       h+='<div style="padding:8px;border-radius:8px;background:var(--bg)"><div style="font-size:9px;color:var(--tx3)">COTA HINCA</div><div style="font-size:14px;font-weight:700">'+supData.co.toFixed(2)+' m</div></div>';
       h+='</div>';
