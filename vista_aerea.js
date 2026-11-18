@@ -12,10 +12,11 @@
  * de la propia app: filas rectas, vanos nominales de getTramoTol (TRAMO_NOM ± TRAMO_TOL) medidos en 3D
  * entre cabezas de soporte (en ladera el vano en planta es más corto), motora y cardán enfrentados,
  * los «N» al norte de los «S» y la motora donde la pone el fichero de seguidores. Si algo no cuadra lo
- * dice y dibuja lo que dice el fichero: no lo arregla ni inventa nada. En Atalaya sólo 57 de 1.756
- * seguidores pasan sin aviso de forma, y en todos los «N» quedan al sur (auditoría en SolarGPTfull,
- * docs/audit/OBRA-VISTA-AEREA__SolarGPTfull.md, H-24 y H-25). La ficha de cada soporte, el aviso GPS
- * y el Excel de alturas salen del mismo fichero.
+ * dice y dibuja lo que dice el fichero: no lo arregla ni inventa nada. Con el fichero anterior de Atalaya
+ * avisaba en los 1.756 seguidores (auditoría en SolarGPTfull, docs/audit/OBRA-VISTA-AEREA__SolarGPTfull.md,
+ * H-24 y H-25). Con el reconstruido (18/11/2026) no avisa en ninguno, y lo que enseña es la CONFIANZA del
+ * número de cada seguidor (master.js, «conf»: confirmado, pista o deducido). La ficha de cada soporte, el
+ * aviso GPS y el Excel de alturas salen del mismo fichero.
  *
  * Coordenadas: UTM huso 30 (WGS84), como utmToLL de index.html. Nombres: los de la app (plantas.js)
  * se buscan en el fichero con su convención: fila motor «4N-MP» → «4NW», «MP» → «MOTORA-W» (en
@@ -28,6 +29,17 @@
   var MARGEN_X = 9, MARGEN_Y = 5, ANCHO = 340, ALTO_MAX = 300;
   var CLAVE_PLEGADA = 'vistaAerea.plegada';
   var COLOR = { ok: 'var(--ok)', no: 'var(--no)', parcial: 'var(--warn)' };
+  /* Confianza del NÚMERO de cada seguidor en un fichero reconstruido (master.js, campo «conf»; propietario,
+   * 18/11/2026: «Carga la reconstrucción marcando confirmados y deducidos»). Los soportes dibujados son siempre
+   * los de un seguidor real; lo que puede estar deducido es qué número TR lleva. */
+  var CONF = {
+    confirmado: { badge: '✓ confirmado', color: 'var(--ok)', fondo: 'rgba(91,191,138,.1)',
+      texto: function () { return '✓ Seguidor confirmado: el fichero anterior ya tenía estos soportes en su sitio; sólo se han corregido los nombres norte/sur.'; } },
+    pista: { badge: 'número deducido', color: 'var(--info)', fondo: 'rgba(104,192,216,.08)',
+      texto: function (c) { return 'Número deducido con pista clara. Los soportes son los de un seguidor real (forma, norte y motora comprobados); que sea el ' + c + ' se ha deducido del fichero anterior, que lo situaba aquí. Si en obra no cuadra, avísalo.'; } },
+    deducido: { badge: '⚠️ número sin confirmar', color: 'var(--warn)', fondo: 'rgba(242,201,76,.1)',
+      texto: function (c) { return '⚠️ Número sin confirmar. El seguidor dibujado es real, pero que sea el ' + c + ' es una suposición: el fichero anterior no lo distinguía de un gemelo o no daba pista. Compruébalo con el plano antes de fiarte de la ficha y del Excel de alturas.'; } }
+  };
 
   function esc(s) {
     return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
@@ -183,11 +195,12 @@
     function tarjeta(code, o) {
       var d = datos[code];
       if (!soportes || !d || !tipos[d.type]) return '';
-      var av = chequeo(code), pleg = plegada();
+      var av = chequeo(code), pleg = plegada(), cf = CONF[d.conf] || null;
       var h = '<div class="card" id="va-card" style="padding:12px">';
       h += '<button type="button" id="va-cab" onclick="' + o.pliega + '()" aria-expanded="' + (pleg ? 'false' : 'true') + '" style="display:flex;width:100%;align-items:center;gap:8px;background:none;border:none;padding:0;color:var(--tx);cursor:pointer;font-family:inherit;text-align:left">' +
         '<span style="font-weight:700;font-size:14px">🛰️ Vista aérea</span>' +
-        (av.length ? '<span id="va-badge" style="font-size:11px;font-weight:600;color:var(--warn)">⚠️ el fichero no cuadra</span>' : '') +
+        (av.length ? '<span id="va-badge" style="font-size:11px;font-weight:600;color:var(--warn)">⚠️ el fichero no cuadra</span>' :
+          cf ? '<span id="va-conf-badge" data-conf="' + esc(d.conf) + '" style="font-size:11px;font-weight:600;color:' + cf.color + '">' + esc(cf.badge) + '</span>' : '') +
         '<span style="margin-left:auto;color:var(--td);font-size:13px">' + (pleg ? '▸' : '▾') + '</span></button>';
       if (!pleg) {
         h += '<div style="font-size:10.5px;color:var(--td);margin:4px 0 8px">Toca un soporte para abrirlo</div>';
@@ -197,6 +210,7 @@
         (o.leyenda || []).forEach(function (l) { h += it(l[0] === 'vacio' ? '○' : '<span style="color:' + COLOR[l[0]] + '">●</span>', l[1]); });
         h += it('■', 'Motora') + it('◆', 'Cardán') + it('<span style="color:var(--info)">●</span>', 'Tú (GPS)') + it('<span style="color:#3A5272">●</span>', 'Vecinos') + '</div>';
         h += '<div id="va-gps-txt" style="font-size:11px;color:var(--info);margin-top:4px"></div>';
+        if (cf) h += '<div id="va-confianza" role="note" data-conf="' + esc(d.conf) + '" style="margin-top:8px;padding:8px 10px;border-radius:4px;background:' + cf.fondo + ';border:1px solid ' + cf.color + ';color:' + cf.color + ';font-size:11.5px;line-height:1.45">' + esc(cf.texto(code)) + '</div>';
         if (av.length) {
           h += '<div id="va-aviso" role="note" style="margin-top:8px;padding:8px 10px;border-radius:4px;background:rgba(242,201,76,.1);border:1px solid var(--warn);color:var(--warn);font-size:11.5px;line-height:1.45">' +
             '<b>⚠️ El fichero de proyecto no cuadra con un ' + esc(d.type.replace(/_/g, ' ')) + '</b>';

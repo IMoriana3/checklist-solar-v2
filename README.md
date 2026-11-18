@@ -75,6 +75,19 @@ Firebase se sustituye por un doble de prueba: no hay red ni datos reales.
   confirma, y al volver a entrar el mismo usuario sube lo pendiente (y lo dice). Repetir un cambio deja
   el mismo valor; las entradas de registro conservan su clave, así que no se duplican. Lo rechazado por
   el servidor no se reintenta: se avisa. Si el navegador no deja guardar (modo privado), lo avisa.
+- **Fichero de soportes reconstruido (18/11/2026)**, por decisión del propietario («Carga la reconstrucción
+  marcando confirmados y deducidos»). El anterior `master_con.js` agrupaba y nombraba mal los soportes (ver la
+  nota siguiente). Ahora:
+  - cada seguidor tiene los soportes de un seguidor real, con el norte al norte y la motora al oeste;
+  - los vanos son los de proyecto, y el chequeo de la vista aérea no avisa en ninguno;
+  - qué número TR lleva cada seguidor se dedujo del fichero anterior. Cada uno lleva su confianza en
+    `master.js` (`conf`) y la vista aérea la enseña: **57 confirmados**, **952 con pista clara** y **747
+    deducidos**, que son gemelos o no tenían pista;
+  - en 5.812 soportes, el perfil, la profundidad mínima o la cimentación son de su fila. El fichero anterior
+    los ponía por el nombre del soporte: la ficha los marca «deducido».
+
+  Herramienta y resumen: `tools/obra_soportes/reconstruir_soportes.mjs` en SolarGPTfull. Con el plano numerado
+  de la topografía, todo pasaría a confirmado.
 - **La vista aérea avisa si el fichero de soportes no cuadra** (18/11/2026). Dibuja lo que dice
   `master_con.js` y comprueba, con las medidas de la propia app, que esos soportes forman el seguidor de
   su tipo: filas rectas, vanos nominales (`TRAMO_NOM` ± 30 mm, en 3D), motora y cardán enfrentados y
