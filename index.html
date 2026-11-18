@@ -18,6 +18,7 @@
 <!-- Master data -->
 <script src="plantas.js"></script>
 <script src="cola.js"></script>
+<script src="vista_aerea.js"></script>
 
 <style>
 /* Piel «Célula» (la de la portada y el SCADA): tipografías autoalojadas (OFL), ámbar Factiun como único color de emisión y paleta de estado aparte */
@@ -623,6 +624,32 @@ function getTramoTol(type,piIdx){
   return{nom:nom,min:nom-TRAMO_TOL,max:nom+TRAMO_TOL};
 }
 
+// VISTA AÉREA del seguidor con sus soportes (vista_aerea.js), en Construcción y en Calidad › Cimentaciones.
+// Dibuja lo que dice el fichero de soportes de la planta y AVISA si no forma el seguidor de su tipo
+// (vanos de getTramoTol, filas rectas, motora y cardán enfrentados, «N» al norte). Sólo lee: no toca la base.
+var VA=null;
+function vaApp(){
+  if(!VA)VA=VistaAerea.crear({datos:MASTER_DATA,soportes:(typeof MASTER_CON!=='undefined'?MASTER_CON:null),tipos:PCFG,tramo:getTramoTol,
+    almacen:(function(){try{return window.localStorage}catch(e){return null}})()});
+  return VA;
+}
+function vaTocaCon(fila,i){V.conFila=fila;V.conPi=i;R()}
+function vaTocaCal(fila,i){V.qFila=fila;V.qPi=i;R()}
+function vaPliega(){var va=vaApp();va.plegar(!va.plegada());R()}
+// Posición fresca, como el aviso GPS de la ficha: _cachedGPS puede tener hasta un minuto y en obra, andando
+// de soporte en soporte (6-7 m), un punto viejo engaña. Si no llega, no se pinta nada.
+function vaGps(){
+  var va=vaApp();
+  if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){va.ponGps(p.coords.latitude,p.coords.longitude,p.coords.accuracy)},function(){},{enableHighAccuracy:true,timeout:8000,maximumAge:0});
+}
+// Estado de calidad de un pilar en Cimentaciones: rellenos, total y si alguno está fuera de tolerancia o
+// distinto del valor esperado. Lo usan los botones de pilar y la vista aérea.
+function qPilarEstado(qd,px,i,type,mpI){
+  var fl=0,tt=0,bad=false;
+  MED.concat(COMP).forEach(function(f){if(f.isTramo&&i===mpI)return;tt++;var v=qd[px+'_'+i+'_'+f.id];if(v!=null){fl++;var ft=f.tol;if(f.isTramo){var tt3=getTramoTol(type,i);if(tt3)ft=[tt3.min,tt3.max]}if(ft&&typeof v==='number'&&(v<ft[0]||v>ft[1]))bad=true;if(f.def!=null&&v!==f.def)bad=true}});
+  return {fl:fl,tt:tt,bad:bad};
+}
+
 // Calculate accumulated distance from MP to pilar pi, using recorded tramo measurements
 function calcAccumDist(qd,px,pi,mpI,type){
   var isLargo=(type==='monofila_largo'||type==='bifila_largo');
@@ -984,6 +1011,9 @@ function rConTracker(a){
     var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'conselect\';R()">←</button><div><h1>🏗️ '+code+'</h1><div class="sub">'+m.type+(V.viewOnly?' · Solo lectura':'')+'</div></div></div>';
     h+='<div class="cnt" style="padding-top:6px">';
     if(V.viewOnly)h+='<div style="padding:8px 12px;border-radius:10px;background:rgba(245,158,11,.1);border:1px solid var(--warn);color:var(--warn);font-size:12px;text-align:center;margin-bottom:8px">👁️ Modo solo lectura</div>';
+    h+=vaApp().tarjeta(code,{estado:function(f,i){var e=con[(f==='motor'?'fm':'fc')+'_'+i+'_estado'];
+        return e==='hincada'?{clase:'ok',texto:'hincado'}:e==='rechazo'?{clase:'no',texto:'rechazo'}:{clase:'vacio',texto:'sin hincar'}},
+      sel:{fila:fila,i:pi},toca:'vaTocaCon',pliega:'vaPliega',leyenda:[['ok','Hincado'],['no','Rechazo'],['vacio','Sin hincar']]});
     
     // Fila tabs
     if(filas.length>1){
@@ -1115,6 +1145,7 @@ function rConTracker(a){
     
     h+='</div>'; // cnt
     a.innerHTML=h;
+    vaGps();
   });
 }
 
@@ -1441,6 +1472,9 @@ function rQualTracker(a){
     
     // CIM TAB
     if(V.qTab==='cim'){
+      h+=vaApp().tarjeta(code,{estado:function(f,i){var e=qPilarEstado(qd,f==='motor'?'fm':'fc',i,m.type,mpI);
+          return e.fl===0?{clase:'vacio',texto:'sin datos'}:e.bad?{clase:'no',texto:'no conforme ('+e.fl+'/'+e.tt+')'}:e.fl<e.tt?{clase:'parcial',texto:'a medias ('+e.fl+'/'+e.tt+')'}:{clase:'ok',texto:'completo'}},
+        sel:{fila:fila,i:pi},toca:'vaTocaCal',pliega:'vaPliega',leyenda:[['ok','Completo'],['parcial','A medias'],['no','No conforme'],['vacio','Sin datos']]});
       if(filas.length>1){
         h+='<div style="display:flex;gap:6px;margin-bottom:8px">';
         filas.forEach(function(f){var s2=f===fila;
@@ -1450,8 +1484,7 @@ function rQualTracker(a){
       // Pillar buttons
       h+='<div style="display:flex;gap:4px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch">';
       pils.forEach(function(p,i){
-        var fl2=0,tt2=0,bad2=false;
-        MED.concat(COMP).forEach(function(f){if(f.isTramo&&i===mpI)return;tt2++;var v=qd[px+'_'+i+'_'+f.id];if(v!=null){fl2++;var ft=f.tol;if(f.isTramo){var tt3=getTramoTol(m.type,i);if(tt3)ft=[tt3.min,tt3.max]}if(ft&&typeof v==='number'&&(v<ft[0]||v>ft[1]))bad2=true;if(f.def!=null&&v!==f.def)bad2=true}});
+        var e2=qPilarEstado(qd,px,i,m.type,mpI),fl2=e2.fl,tt2=e2.tt,bad2=e2.bad;
         var bdC=fl2===0?'var(--bd)':bad2?'var(--no)':(fl2<tt2?'var(--warn)':'var(--ac)');
         var cls2=i===pi?'outline:2px solid var(--ac);outline-offset:2px;':'';
         h+='<button onclick="V.qPi='+i+';R()" style="flex-shrink:0;min-width:52px;padding:6px 8px;border-radius:8px;font-size:11px;font-weight:700;text-align:center;border:2px solid '+bdC+';background:transparent;color:var(--tx);cursor:pointer;'+cls2+'">'+p+'<div style="font-size:9px;opacity:.6;margin-top:2px">'+fl2+'/'+tt2+'</div></button>';
@@ -1595,6 +1628,7 @@ function rQualTracker(a){
     
     h+='</div>';
     a.innerHTML=h;
+    if(V.qTab==='cim')vaGps();
   });
 }
 

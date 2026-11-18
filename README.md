@@ -10,6 +10,9 @@ Aplicación web progresiva (PWA) para el seguimiento de obra de la planta **ISFV
 - **Construcción** 🏗️ — checklist de avance por seguidor, con autor y fecha (log de cambios).
 - **Calidad** ✅ — controles de calidad por seguidor con su propio workflow.
 - **Punchlist** 📝 — incidencias (PV, sub, fase, seguidor, pilar, campo, descripción) con ciclo detectado → reparado → verificado.
+- **Vista aérea** 🛰️ — en cada seguidor (Construcción y Calidad › Cimentaciones): sus soportes vistos
+  desde arriba, al norte y a escala, con el estado de cada uno, motora y cardán, los vecinos en gris y tu
+  posición GPS. Tocar un soporte lo abre. Funciona sin cobertura y se puede plegar.
 - **Mapa** 🗺️ — vista de la planta. **Resumen** 📊 — consolidado de Construcción + Calidad.
 - **Exportación a Excel** 📥 de todos los datos. **Admin** — utilidades y carga de datos demo.
 
@@ -49,7 +52,9 @@ Comprueban que Atalaya lee y escribe exactamente las mismas rutas que antes del 
 (`tests/fixtures/linea_base_atalaya.json`), que una planta desconocida o sin soportes no toca la base,
 que una planta nueva sólo usa `plantas/<id>/`, que **lo que nadie ha registrado no aparece como
 registrado**, ni en pantalla ni en los Excel exportados (`tests/test_no_registrado.cjs`), y que **lo
-escrito sin conexión sobrevive a cerrar la app** (`tests/test_cola.cjs`, `tests/test_sin_conexion.cjs`).
+escrito sin conexión sobrevive a cerrar la app** (`tests/test_cola.cjs`, `tests/test_sin_conexion.cjs`), y
+que **la vista aérea dibuja los soportes del fichero, avisa cuando no forman su seguidor y abre el soporte
+que se toca** (`tests/test_vista_aerea.cjs`).
 Firebase se sustituye por un doble de prueba: no hay red ni datos reales.
 
 ## Notas
@@ -70,6 +75,14 @@ Firebase se sustituye por un doble de prueba: no hay red ni datos reales.
   confirma, y al volver a entrar el mismo usuario sube lo pendiente (y lo dice). Repetir un cambio deja
   el mismo valor; las entradas de registro conservan su clave, así que no se duplican. Lo rechazado por
   el servidor no se reintenta: se avisa. Si el navegador no deja guardar (modo privado), lo avisa.
+- **La vista aérea avisa si el fichero de soportes no cuadra** (18/11/2026). Dibuja lo que dice
+  `master_con.js` y comprueba, con las medidas de la propia app, que esos soportes forman el seguidor de
+  su tipo: filas rectas, vanos nominales (`TRAMO_NOM` ± 30 mm, en 3D), motora y cardán enfrentados y
+  los «N» al norte. Si no, lo dice. **Hoy avisa en los 1.756 seguidores de Atalaya:** en 1.699 los
+  soportes no forman su seguidor, y en todos los «N» quedan al sur. `master_con.js` se generó
+  ordenando los soportes por coordenadas y cortándolos en trozos de 10 o 18. La ficha de cada soporte,
+  el aviso GPS y el Excel de alturas salen del mismo fichero. Para arreglarlo hace falta la tabla de
+  hincas del proyecto. Auditoría: `docs/audit/OBRA-VISTA-AEREA__SolarGPTfull.md` en SolarGPTfull.
 - La app se abre sin conexión si el navegador conserva en su caché las librerías de Firebase (el service
   worker no las guarda): pendiente de comprobar en un móvil real.
 - Pendiente: rediseñar el Dashboard con tema claro estilo Amelia (ref. brochure pág. 6).
