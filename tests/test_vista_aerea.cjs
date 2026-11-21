@@ -235,6 +235,22 @@ const cuenta = (clases, c) => clases.filter((x) => x.endsWith(':' + c)).length;
     await page.click('#va-svg .va-sop[data-fila="motor"][data-i="1"]');
     await page.waitForTimeout(350);
     check('Calidad: tocar un soporte lo abre', igual(await page.evaluate(() => [V.qFila, V.qPi]), ['motor', 1]));
+    // Alternar desde el plano conserva el apoyo y aplica el modo de lectura del destino.
+    const selector = page.getByRole('group', { name: 'Vista del plano' });
+    await page.evaluate(() => { U.role = 'calidad'; });
+    await selector.getByRole('button', { name: 'Hincado', exact: true }).click();
+    await page.locator('#va-svg').waitFor();
+    r = await leerVista(page);
+    check('Calidad → Hincado conserva el soporte, muestra su avance y abre en solo lectura',
+      igual(r.sel, ['motor:1']) && r.clases.includes('motor:1:ok') &&
+      igual(await page.evaluate(() => [V.screen, V.conTr, V.viewOnly]), ['contractor', 'TR01.015', true]));
+    await selector.getByRole('button', { name: 'Calidad', exact: true }).click();
+    await page.locator('#va-svg').waitFor();
+    r = await leerVista(page);
+    check('Hincado → Calidad conserva la no conformidad del mismo soporte y recupera la edición de Calidad',
+      igual(r.sel, ['motor:1']) && r.clases.includes('motor:1:no') &&
+      igual(await page.evaluate(() => [V.screen, V.calTr, V.viewOnly]), ['qualtracker', 'TR01.015', false]));
+    await page.evaluate(() => { U.role = 'admin'; });
     await pantalla(page, 'qualtracker', { qTab: 'mont' });
     check('Calidad › Montaje: sin tarjeta (no va por soporte)', !(await leerVista(page)).tarjeta);
     // GPS emulado: sobre la motora de TR01.015, y lejos
