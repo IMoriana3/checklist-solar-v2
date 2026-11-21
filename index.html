@@ -404,11 +404,182 @@ function addPLItem(pv,sub,phase,tracker,pilar,campo,desc){
 }
 
 function setPLEstado(id,estado){
+  if(CACHE.punchlist&&CACHE.punchlist[id]&&CACHE.punchlist[id].medicion){
+    cambiaIncidenciaMedida(id,estado);
+    return;
+  }
   var updates={estado:estado};
   if(estado==='reparado'){updates.reparadoPor=U.name;updates.reparadoUid=U.uid;updates.fechaReparacion=firebase.database.ServerValue.TIMESTAMP}
   if(estado==='verificado'){updates.verificadoPor=U.name;updates.verificadoUid=U.uid;updates.fechaVerificacion=firebase.database.ServerValue.TIMESTAMP}
   db.ref('punchlist/'+id).update(updates);
   toast(estado==='reparado'?'Marcado como reparado':'Verificado','var(--ac)');
+}
+
+
+// Incidencias ligadas a una medida de Cimentaciones, en el Punchlist de la planta.
+// Estas acciones esperan confirmación en línea: un reenvío como set sobrescribiría cambios de otro usuario.
+function idIncidenciaMedida(code,campo){
+  return 'med_'+code.replace(/\./g,'_')+'_'+campo;
+}
+function lecturaIncidencia(code,campo,datos){
+  var m=MASTER_DATA[code];
+  var partes=/^(fm|fc)_(\d+)_(\w+)$/.exec(campo);
+  if(!m||!partes)return null;
+  var cfg=PCFG[m.type],fila=partes[1]==='fm'?'motor':'conducida',i=Number(partes[2]);
+  var f=MED.find(function(item){return item.id===partes[3]&&item.type==='number'});
+  if(!cfg||!cfg[fila]||!cfg[fila][i]||!f||!Number.isFinite(datos[campo]))return null;
+  var tramo=f.isTramo&&i!==getMPi(m.type)?getTramoTol(m.type,i):null;
+  var limites=tramo?[tramo.min,tramo.max]:f.tol;
+  if(!limites)return null;
+  return {
+    pilar:cfg[fila][i],fila:fila,indice:i,campo:campo,control:f.label,valor:datos[campo],
+    unidad:f.unit,min:limites[0],max:limites[1],fecha:datos[campo+'_ts']||null,
+    autor:datos[campo+'_by']||null
+  };
+}
+function fueraDeLimite(m){return m.valor<m.min||m.valor>m.max}
+function textoMedida(m){return m.valor+' '+m.unidad+' · límite '+m.min+'–'+m.max+' '+m.unidad}
+
+function fichaIncidenciaMedida(p){
+  if(!p.medicion)return '';
+  var html=PlantasObra.html;
+  function ciclo(c){
+    var h='<div style="font-size:12px">Inicial: '+html(textoMedida(c.medicion))+'</div>';
+    if(c.reinspeccion)h+='<div style="font-size:12px">Reinspección: '+html(textoMedida(c.reinspeccion))+'</div>';
+    if(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(c.foto||''))
+      h+='<a href="'+html(c.foto)+'" download="incidencia.jpg" style="display:inline-block;margin:6px 0;color:var(--ac)">Descargar foto</a>';
+    return h;
+  }
+  var h=ciclo(p);
+  if(p.historial&&p.historial.length){
+    h+='<details><summary>Incidencias anteriores ('+p.historial.length+')</summary>';
+    p.historial.slice().reverse().forEach(function(c){h+='<div class="pl-item">'+ciclo(c)+'</div>'});
+    h+='</details>';
+  }
+  return h;
+}
+function bloqueIncidenciaMedida(code,campo,outTol,viewOnly){
+  var id=idIncidenciaMedida(code,campo);
+  var item=(CACHE.punchlist||{})[id];
+  var abierta=item&&item.estado!=='verificado';
+  if(!item&&!outTol)return '';
+  var consultar=abierta||(item&&!outTol);
+  var h='<details class="pl-item" style="margin-top:8px"><summary>'+(
+    consultar?'Ver incidencia · '+PlantasObra.html(item.estado):'Abrir incidencia')+'</summary>';
+  if(consultar){
+    h+=fichaIncidenciaMedida(item);
+    if(!viewOnly&&isCal()&&item.estado==='reparado'){
+      h+='<p style="font-size:12px;color:var(--td)">Guarda una nueva medida en el control y verifica la reparación.</p>';
+      h+='<button type="button" class="btn btn-primary" data-incidencia="'+PlantasObra.html(id)+'" onclick="cambiaIncidenciaMedida(this.dataset.incidencia,\'verificado\',this)">Verificar con la nueva medida</button>';
+    }
+  }else if(!viewOnly&&isCal()){
+    h+='<form data-tracker="'+PlantasObra.html(code)+'" data-campo="'+PlantasObra.html(campo)+'" onsubmit="event.preventDefault();abreIncidenciaMedida(this)">';
+    h+='<label style="display:block;margin:8px 0;font-size:12px">Foto del poste (opcional)<input type="file" name="foto" accept="image/jpeg,image/png,image/webp" style="display:block;max-width:100%;margin-top:4px"></label>';
+    h+='<button class="btn btn-danger" type="submit">Añadir al Punchlist</button></form>';
+  }else return '';
+  return h+'</details>';
+}
+async function fotoIncidencia(file){
+  if(!file)return null;
+  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>15000000)
+    throw new Error('Selecciona una foto JPG, PNG o WebP de hasta 15 MB.');
+  var url=URL.createObjectURL(file);
+  try{
+    var img=new Image();
+    img.src=url;
+    await img.decode();
+    var escala=Math.min(1,720/Math.max(img.naturalWidth,img.naturalHeight));
+    var canvas=document.createElement('canvas');
+    canvas.width=Math.max(1,Math.round(img.naturalWidth*escala));
+    canvas.height=Math.max(1,Math.round(img.naturalHeight*escala));
+    var ctx=canvas.getContext('2d');
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    var foto=canvas.toDataURL('image/jpeg',0.64);
+    if(foto.length>150000)throw new Error('La foto supera el tamaño de almacenamiento. Selecciona otra.');
+    return foto;
+  }finally{URL.revokeObjectURL(url)}
+}
+async function abreIncidenciaMedida(form){
+  if(V.viewOnly||!isCal())return;
+  if(!ONLINE){showToast('Conéctate para abrir la incidencia sin duplicarla.','var(--warn)');return}
+  var code=form.dataset.tracker,campo=form.dataset.campo;
+  if(_qfTimers[code+'_'+campo]){showToast('Espera a que se guarde la medida.','var(--warn)');return}
+  var boton=form.querySelector('button[type=submit]');
+  if(boton.disabled)return;
+  boton.disabled=true;
+  var uid=U.uid;
+  try{
+    var foto=await fotoIncidencia(form.elements.foto.files[0]);
+    var snap=await db.ref('quality/'+code.replace(/\./g,'_')).once('value');
+    var lectura=lecturaIncidencia(code,campo,snap.val()||{});
+    if(!U||U.uid!==uid||!isCal()||V.viewOnly)return;
+    if(!lectura||!fueraDeLimite(lectura))throw new Error('Guarda primero una medida fuera de tolerancia.');
+    var m=MASTER_DATA[code],id=idIncidenciaMedida(code,campo);
+    var item={
+      pv:m.pv,sub:m.sub||0,phase:'hincado',tracker:code,pilar:lectura.pilar,campo:campo,
+      desc:lectura.control+': '+textoMedida(lectura),estado:'pendiente',
+      detectadoPor:U.name,uid:uid,fechaDeteccion:firebase.database.ServerValue.TIMESTAMP,medicion:lectura
+    };
+    if(foto)item.foto=foto;
+    var result=await db.ref('punchlist/'+id).transaction(function(actual){
+      if(!actual)return item;
+      if(actual.estado!=='verificado'||!(lectura.fecha>(actual.reinspeccion||{}).fecha))return;
+      var anterior=Object.assign({},actual);
+      delete anterior.historial;
+      return Object.assign({},item,{historial:(actual.historial||[]).concat(anterior)});
+    },null,false);
+    if(U&&U.uid===uid){
+      if(!CACHE.punchlist)CACHE.punchlist={};
+      CACHE.punchlist[id]=result.snapshot.val();
+      R();
+      showToast(result.committed?'Incidencia añadida al Punchlist':'Esta medida ya está en el Punchlist.','var(--ac)');
+    }
+  }catch(error){showToast(error.message||'No se pudo guardar la incidencia.','var(--no)')}
+  finally{boton.disabled=false}
+}
+function abreControlIncidencia(id){
+  var p=(CACHE.punchlist||{})[id];
+  if(!p||!p.medicion||(!isCal()&&!isCon()))return;
+  V.calTr=p.tracker;V.calPv=p.pv;V.calSub=p.sub;
+  V.qTab='cim';V.qFila=p.medicion.fila;V.qPi=p.medicion.indice;
+  V.viewOnly=!isCal();V.screen='qualtracker';
+  R();
+}
+async function cambiaIncidenciaMedida(id,estado,boton){
+  var p=(CACHE.punchlist||{})[id];
+  if(!p||!p.medicion||V.viewOnly||!(estado==='reparado'?isCon():isCal()))return;
+  if(!ONLINE){showToast('Conéctate para actualizar la incidencia.','var(--warn)');return}
+  if(_qfTimers[p.tracker+'_'+p.campo]){showToast('Espera a que se guarde la medida.','var(--warn)');return}
+  if(boton&&boton.disabled)return;
+  if(boton)boton.disabled=true;
+  var uid=U.uid;
+  try{
+    var nueva=null;
+    if(estado==='verificado'){
+      var s=await db.ref('quality/'+p.tracker.replace(/\./g,'_')).once('value');
+      nueva=lecturaIncidencia(p.tracker,p.campo,s.val()||{});
+      if(!nueva||fueraDeLimite(nueva)||!Number.isFinite(nueva.fecha)||nueva.fecha<=p.fechaReparacion)
+        throw new Error('Registra una medida conforme posterior a la reparación.');
+    }
+    if(!U||U.uid!==uid||V.viewOnly||!(estado==='reparado'?isCon():isCal()))return;
+    var nombre=U.name,fecha=firebase.database.ServerValue.TIMESTAMP;
+    var result=await db.ref('punchlist/'+id).transaction(function(actual){
+      if(!actual||actual.estado!==p.estado||actual.fechaDeteccion!==p.fechaDeteccion||actual.fechaReparacion!==p.fechaReparacion)return;
+      if(estado==='reparado'&&actual.estado==='pendiente')
+        return Object.assign({},actual,{estado:estado,reparadoPor:nombre,reparadoUid:uid,fechaReparacion:fecha});
+      if(estado==='verificado'&&actual.estado==='reparado'&&nueva.fecha>actual.fechaReparacion)
+        return Object.assign({},actual,{estado:estado,verificadoPor:nombre,verificadoUid:uid,fechaVerificacion:fecha,reinspeccion:nueva});
+      if(estado==='pendiente'&&actual.estado==='reparado')return Object.assign({},actual,{estado:estado});
+    },null,false);
+    if(U&&U.uid===uid){
+      CACHE.punchlist[id]=result.snapshot.val();
+      R();
+      showToast(result.committed?'Incidencia actualizada':'La incidencia cambió. Revisa su estado.','var(--ac)');
+    }
+  }catch(error){showToast(error.message||'No se pudo actualizar la incidencia.','var(--no)')}
+  finally{if(boton)boton.disabled=false}
 }
 
 // ============================================================
@@ -1172,7 +1343,7 @@ function rConDetail(a){
         var p=item.d;
         var stC=p.estado==='pendiente'?'var(--no)':p.estado==='reparado'?'var(--warn)':'var(--ac)';
         h+='<div class="pl-item"><div style="display:flex;justify-content:space-between"><div style="font-weight:700;font-size:12px">'+p.tracker+' · '+p.pilar+'</div><span class="badge" style="background:'+stC+'22;color:'+stC+'">'+p.estado+'</span></div>';
-        h+='<div style="font-size:12px;margin-top:4px">'+p.desc+'</div>';
+        h+='<div style="font-size:12px;margin-top:4px">'+PlantasObra.html(p.desc||'')+'</div>'+fichaIncidenciaMedida(p);
         if(p.estado==='pendiente')h+='<button onclick="setPLEstado(\''+item.id+'\',\'reparado\');R()" class="btn btn-warn" style="margin-top:8px;padding:8px;font-size:12px">🔧 Marcar reparado</button>';
         h+='</div>';
       });
@@ -1203,7 +1374,7 @@ function rConDetail(a){
 }
 
 function rCalDetail(a){
-  var pv=V.calPv||V.conPv,sub=V.calSub||V.conSub;
+  var pv=V.calPv||V.conPv,sub=V.calSub==null?V.conSub:V.calSub;
   if(!pv){V.screen='calselect';R();return}
   var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'calselect\';R()">←</button><div><h1>✅ PV'+String(pv).padStart(2,'0')+'/Sub'+sub+'</h1><div class="sub">Workflow Calidad</div></div></div>';
   h+='<div class="cnt" style="padding-top:10px">';
@@ -1227,8 +1398,9 @@ function rCalDetail(a){
         var p=item.d;
         var stC=p.estado==='pendiente'?'var(--no)':p.estado==='reparado'?'var(--warn)':'var(--ac)';
         h+='<div class="pl-item"><div style="display:flex;justify-content:space-between"><div style="font-weight:700;font-size:12px">'+p.tracker+' · '+p.pilar+'</div><span class="badge" style="background:'+stC+'22;color:'+stC+'">'+p.estado+'</span></div>';
-        h+='<div style="font-size:12px;margin-top:4px">'+p.desc+'</div>';
-        if(p.estado==='reparado')h+='<div style="display:flex;gap:6px;margin-top:6px"><button onclick="setPLEstado(\''+item.id+'\',\'verificado\')" class="btn btn-primary" style="flex:1;padding:8px;font-size:11px">✅ OK</button><button onclick="setPLEstado(\''+item.id+'\',\'pendiente\')" class="btn btn-danger" style="flex:1;padding:8px;font-size:11px">❌ No OK</button></div>';
+        h+='<div style="font-size:12px;margin-top:4px">'+PlantasObra.html(p.desc||'')+'</div>'+fichaIncidenciaMedida(p);
+        if(p.medicion)h+='<button type="button" class="btn btn-ghost" data-incidencia="'+PlantasObra.html(item.id)+'" onclick="abreControlIncidencia(this.dataset.incidencia)">Abrir control del poste</button>';
+        else if(p.estado==='reparado')h+='<div style="display:flex;gap:6px;margin-top:6px"><button onclick="setPLEstado(\''+item.id+'\',\'verificado\')" class="btn btn-primary" style="flex:1;padding:8px;font-size:11px">✅ OK</button><button onclick="setPLEstado(\''+item.id+'\',\'pendiente\')" class="btn btn-danger" style="flex:1;padding:8px;font-size:11px">❌ No OK</button></div>';
         h+='</div>';
       });
     }
@@ -1513,10 +1685,11 @@ function rQualTracker(a){
           if(viewOnly){
             h+='<div style="margin-top:6px;padding:10px;border-radius:8px;background:var(--bg);font-size:16px;font-weight:600;color:'+(outTol?'var(--no)':'var(--tx)')+'">'+(v!=null?v+' '+f.unit:'—')+'</div>';
           }else{
-            var saveFn=f.isTramo?'setQFtramo':'setQF';
-            h+='<input class="inp" type="number" step="any" value="'+(v!=null?v:'')+'" onchange="'+saveFn+'(\''+code+'\',\''+k+'\',parseFloat(this.value)||null)" style="margin-top:6px;height:40px;font-size:16px;'+(outTol?'border-color:var(--no);color:var(--no)':'')+'" placeholder="'+f.unit+'">';
+            var saveFn=dynTol?'setQFtramo':'setQF';
+            h+='<input class="inp" type="number" step="any" value="'+(v!=null?v:'')+'" onchange="'+saveFn+'(\''+code+'\',\''+k+'\',Number.isFinite(this.valueAsNumber)?this.valueAsNumber:null)" style="margin-top:6px;height:40px;font-size:16px;'+(outTol?'border-color:var(--no);color:var(--no)':'')+'" placeholder="'+f.unit+'">';
           }
           if(tolLabel)h+='<div style="font-size:9px;color:var(--tx3);margin-top:4px">'+tolLabel+'</div>';
+          h+=bloqueIncidenciaMedida(code,k,outTol,viewOnly);
           // Show accumulated distance for tramo fields
           if(f.isTramo){
             var ad=calcAccumDist(qd,px,pi,mpI,m.type);
