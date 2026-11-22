@@ -440,13 +440,16 @@ function lecturaIncidencia(code,campo,datos){
 function fueraDeLimite(m){return m.valor<m.min||m.valor>m.max}
 function textoMedida(m){return m.valor+' '+m.unidad+' · límite '+m.min+'–'+m.max+' '+m.unidad}
 
+function fotoPunchlistValida(foto){
+  return /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(foto||'');
+}
 function fichaIncidenciaMedida(p){
   if(!p.medicion)return '';
   var html=PlantasObra.html;
   function ciclo(c){
     var h='<div style="font-size:12px">Inicial: '+html(textoMedida(c.medicion))+'</div>';
     if(c.reinspeccion)h+='<div style="font-size:12px">Reinspección: '+html(textoMedida(c.reinspeccion))+'</div>';
-    if(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(c.foto||''))
+    if(fotoPunchlistValida(c.foto))
       h+='<a href="'+html(c.foto)+'" download="incidencia.jpg" style="display:inline-block;margin:6px 0;color:var(--ac)">Descargar foto</a>';
     return h;
   }
@@ -2828,7 +2831,8 @@ function exportPunchlistPDF(pv,sub,phase){
     y+=5;
   });
   
-  // Summary
+  // Reservar espacio para el resumen y las firmas.
+  if(y>238){doc.addPage();y=20}
   y+=5;
   var pending=items.filter(function(i){return i.d.estado==='pendiente'}).length;
   var repaired=items.filter(function(i){return i.d.estado==='reparado'}).length;
@@ -2844,10 +2848,92 @@ function exportPunchlistPDF(pv,sub,phase){
   doc.text('Nombre:',14,y+20);doc.text('Nombre:',80,y+20);doc.text('Nombre:',146,y+20);
   doc.text('Fecha:',14,y+28);doc.text('Fecha:',80,y+28);doc.text('Fecha:',146,y+28);
   
+  anexoMedidasPunchlist(doc,items,pv,sub,phase);
   doc.save('Punchlist_PV'+pv+'_Sub'+sub+'_'+phase+'.pdf');
   toast('PDF generado','var(--ac)');
 }
 
+
+// Anexo de evidencia. Las incidencias manuales se siguen exportando en el listado.
+function anexoMedidasPunchlist(doc,items,pv,sub,phase){
+  var vinculadas=items.filter(function(item){return item.d.medicion});
+  if(!vinculadas.length)return;
+
+  var y;
+  function nuevaPagina(){
+    doc.addPage();
+    doc.setFont(undefined,'bold');
+    doc.setFontSize(14);
+    doc.text('Medidas y evidencias del Punchlist',14,18);
+    doc.setFont(undefined,'normal');
+    doc.setFontSize(9);
+    doc.text('PV'+String(pv).padStart(2,'0')+' / Subcampo '+sub+' / '+WF_LABELS[phase],14,25);
+    y=35;
+  }
+  function metadata(autor,fecha){
+    var partes=[];
+    if(autor)partes.push(autor);
+    if(Number.isFinite(fecha)&&fecha>0)partes.push(new Date(fecha).toLocaleString('es-ES'));
+    return partes.length?' · '+partes.join(' · '):'';
+  }
+  function textoLectura(titulo,m){
+    return titulo+': '+textoMedida(m)+metadata(m.autor,m.fecha);
+  }
+  function ciclo(tracker,pilar,inc,titulo){
+    var m=inc.medicion;
+    var filas=[
+      titulo+' · '+(inc.estado||'pendiente'),
+      'Control: '+m.control,
+      textoLectura('Medida inicial',m),
+      'Detectado'+metadata(inc.detectadoPor,inc.fechaDeteccion)
+    ];
+    if(inc.fechaReparacion)filas.push('Reparado'+metadata(inc.reparadoPor,inc.fechaReparacion));
+    filas.push(inc.reinspeccion?textoLectura('Reinspección',inc.reinspeccion):'Reinspección: pendiente');
+    if(inc.fechaVerificacion)filas.push('Verificado'+metadata(inc.verificadoPor,inc.fechaVerificacion));
+
+    var foto=null;
+    if(fotoPunchlistValida(inc.foto)){
+      try{
+        var imagen=doc.getImageProperties(inc.foto);
+        if(imagen.width>0&&imagen.height>0){
+          var escala=Math.min(78/imagen.width,48/imagen.height);
+          foto={w:imagen.width*escala,h:imagen.height*escala};
+        }
+      }catch(e){/* El resto del expediente se puede exportar si falla la foto. */}
+    }
+    if(inc.foto&&!foto)filas.push('Foto: no disponible en el PDF.');
+    doc.setFontSize(9);
+    var lineas=filas.flatMap(function(fila){return doc.splitTextToSize(fila,179)});
+    var alto=10+lineas.length*5+(foto?foto.h+10:0);
+    if(y+alto>279)nuevaPagina();
+    doc.setFont(undefined,'bold');
+    doc.text((tracker||'-')+' · '+(pilar||'-'),14,y);
+    doc.setFont(undefined,'normal');
+    y+=6;
+    lineas.forEach(function(linea){
+      if(y>275)nuevaPagina();
+      doc.text(linea,14,y);
+      y+=5;
+    });
+    if(foto){
+      if(y+foto.h>276)nuevaPagina();
+      try{
+        doc.addImage(inc.foto,'JPEG',14,y,foto.w,foto.h);
+        y+=foto.h+5;
+      }catch(e){doc.text('Foto: no disponible en el PDF.',14,y);y+=5}
+    }
+    y+=4;
+  }
+
+  nuevaPagina();
+  vinculadas.forEach(function(item){
+    var p=item.d;
+    ciclo(p.tracker,p.pilar,p,'Incidencia actual');
+    (p.historial||[]).forEach(function(anterior,i){
+      if(anterior.medicion)ciclo(p.tracker,p.pilar,anterior,'Incidencia anterior '+(i+1));
+    });
+  });
+}
 
 // ============================================================
 // VERSIONING
