@@ -461,25 +461,51 @@ function fichaIncidenciaMedida(p){
   }
   return h;
 }
-function bloqueIncidenciaMedida(code,campo,outTol,viewOnly){
+function claveBorradorIncidencia(uid,code,campo){
+  return 'obra:nc:'+PLANTA.id+':'+uid+':'+idIncidenciaMedida(code,campo);
+}
+function borradorIncidencia(clave){
+  try{return JSON.parse(localStorage.getItem(clave)||'null')}catch(e){return null}
+}
+function descartaBorradorIncidencia(boton){
+  if(V.viewOnly||!isCal())return;
+  try{
+    localStorage.removeItem(claveBorradorIncidencia(U.uid,boton.dataset.tracker,boton.dataset.campo));
+    R();
+  }catch(e){showToast('No se pudo eliminar el borrador.','var(--no)')}
+}
+function bloqueIncidenciaMedida(code,campo,lectura,viewOnly){
   var id=idIncidenciaMedida(code,campo);
   var item=(CACHE.punchlist||{})[id];
   var abierta=item&&item.estado!=='verificado';
-  if(!item&&!outTol)return '';
-  var consultar=abierta||(item&&!outTol);
-  var h='<details class="pl-item" style="margin-top:8px"><summary>'+(
-    consultar?'Ver incidencia · '+PlantasObra.html(item.estado):'Abrir incidencia')+'</summary>';
+  var outTol=lectura&&fueraDeLimite(lectura);
+  var edita=!viewOnly&&isCal();
+  var borrador=edita?borradorIncidencia(claveBorradorIncidencia(U.uid,code,campo)):null;
+  if(!item&&!outTol&&!borrador)return '';
+  var consultar=abierta||(item&&!outTol&&!borrador);
+  var titulo=consultar?'Ver incidencia · '+item.estado:borrador?'Borrador de incidencia':'Abrir incidencia';
+  var h='<details class="pl-item" style="margin-top:8px"><summary>'+PlantasObra.html(titulo)+'</summary>';
   if(consultar){
     h+=fichaIncidenciaMedida(item);
-    if(!viewOnly&&isCal()&&item.estado==='reparado'){
+    if(edita&&item.estado==='reparado'){
       h+='<p style="font-size:12px;color:var(--td)">Guarda una nueva medida en el control y verifica la reparación.</p>';
       h+='<button type="button" class="btn btn-primary" data-incidencia="'+PlantasObra.html(id)+'" onclick="cambiaIncidenciaMedida(this.dataset.incidencia,\'verificado\',this)">Verificar con la nueva medida</button>';
     }
-  }else if(!viewOnly&&isCal()){
-    h+='<form data-tracker="'+PlantasObra.html(code)+'" data-campo="'+PlantasObra.html(campo)+'" onsubmit="event.preventDefault();abreIncidenciaMedida(this)">';
-    h+='<label style="display:block;margin:8px 0;font-size:12px">Foto del poste (opcional)<input type="file" name="foto" accept="image/jpeg,image/png,image/webp" style="display:block;max-width:100%;margin-top:4px"></label>';
-    h+='<button class="btn btn-danger" type="submit">Añadir al Punchlist</button></form>';
-  }else return '';
+  }
+  if(edita){
+    var destino=' data-tracker="'+PlantasObra.html(code)+'" data-campo="'+PlantasObra.html(campo)+'"';
+    if(borrador){
+      h+='<p style="font-size:12px;color:var(--td)">Borrador en este dispositivo · '+PlantasObra.html(textoMedida(borrador.medicion))+(borrador.foto?' · Con foto':'')+'.</p>';
+      if(fotoPunchlistValida(borrador.foto))h+='<a href="'+PlantasObra.html(borrador.foto)+'" download="borrador-incidencia.jpg">Descargar foto del borrador</a>';
+      h+='<button class="btn btn-ghost" type="button"'+destino+' onclick="descartaBorradorIncidencia(this)">Descartar borrador</button>';
+    }
+    if(!consultar&&(outTol||borrador)){
+      h+='<form'+destino+' data-lectura="'+PlantasObra.html(JSON.stringify(lectura))+'" onsubmit="event.preventDefault();abreIncidenciaMedida(this)">';
+      if(!borrador)h+='<label style="display:block;margin:8px 0;font-size:12px">Foto del poste (opcional)<input type="file" name="foto" accept="image/jpeg,image/png,image/webp" style="display:block;max-width:100%;margin-top:4px"></label>';
+      var accion=borrador?'Enviar borrador':ONLINE?'Añadir al Punchlist':'Guardar borrador';
+      h+='<button class="btn btn-danger" type="submit">'+accion+'</button></form>';
+    }
+  }else if(!consultar)return '';
   return h+'</details>';
 }
 async function fotoIncidencia(file){
@@ -506,26 +532,44 @@ async function fotoIncidencia(file){
 }
 async function abreIncidenciaMedida(form){
   if(V.viewOnly||!isCal())return;
-  if(!ONLINE){showToast('Conéctate para abrir la incidencia sin duplicarla.','var(--warn)');return}
   var code=form.dataset.tracker,campo=form.dataset.campo;
   if(_qfTimers[code+'_'+campo]){showToast('Espera a que se guarde la medida.','var(--warn)');return}
   var boton=form.querySelector('button[type=submit]');
   if(boton.disabled)return;
   boton.disabled=true;
-  var uid=U.uid;
+  var uid=U.uid,clave=claveBorradorIncidencia(uid,code,campo);
   try{
-    var foto=await fotoIncidencia(form.elements.foto.files[0]);
-    var snap=await db.ref('quality/'+code.replace(/\./g,'_')).once('value');
-    var lectura=lecturaIncidencia(code,campo,snap.val()||{});
+    var borrador=borradorIncidencia(clave);
+    var enviaBorrador=Boolean(borrador);
+    if(!borrador){
+      var lectura=JSON.parse(form.dataset.lectura);
+      if(ONLINE){
+        var snap=await db.ref('quality/'+code.replace(/\./g,'_')).once('value');
+        lectura=lecturaIncidencia(code,campo,snap.val()||{});
+      }
+      if(!lectura||!fueraDeLimite(lectura))throw new Error('Guarda primero una medida fuera de tolerancia.');
+      var foto=await fotoIncidencia(form.elements.foto.files[0]);
+      borrador={medicion:lectura,foto:foto,fechaCaptura:Date.now()};
+    }
     if(!U||U.uid!==uid||!isCal()||V.viewOnly)return;
-    if(!lectura||!fueraDeLimite(lectura))throw new Error('Guarda primero una medida fuera de tolerancia.');
-    var m=MASTER_DATA[code],id=idIncidenciaMedida(code,campo);
+    if(!ONLINE&&enviaBorrador){showToast('El borrador sigue guardado. Conéctate para enviarlo.','var(--warn)');return}
+    try{localStorage.setItem(clave,JSON.stringify(borrador))}
+    catch(error){
+      if(!ONLINE)throw new Error('No hay espacio para guardar el borrador en este dispositivo.');
+    }
+    if(!ONLINE){
+      R();
+      showToast('Borrador guardado en este dispositivo.','var(--ac)');
+      return;
+    }
+    var lectura=borrador.medicion,m=MASTER_DATA[code],id=idIncidenciaMedida(code,campo);
     var item={
       pv:m.pv,sub:m.sub||0,phase:'hincado',tracker:code,pilar:lectura.pilar,campo:campo,
       desc:lectura.control+': '+textoMedida(lectura),estado:'pendiente',
-      detectadoPor:U.name,uid:uid,fechaDeteccion:firebase.database.ServerValue.TIMESTAMP,medicion:lectura
+      detectadoPor:U.name,uid:uid,fechaDeteccion:firebase.database.ServerValue.TIMESTAMP,
+      fechaCaptura:borrador.fechaCaptura,medicion:lectura
     };
-    if(foto)item.foto=foto;
+    if(borrador.foto)item.foto=borrador.foto;
     var result=await db.ref('punchlist/'+id).transaction(function(actual){
       if(!actual)return item;
       if(actual.estado!=='verificado'||!(lectura.fecha>(actual.reinspeccion||{}).fecha))return;
@@ -533,11 +577,18 @@ async function abreIncidenciaMedida(form){
       delete anterior.historial;
       return Object.assign({},item,{historial:(actual.historial||[]).concat(anterior)});
     },null,false);
+    var confirmado=result.snapshot.val();
+    var mismo=confirmado&&confirmado.uid===uid&&confirmado.fechaCaptura===borrador.fechaCaptura;
+    if(result.committed||mismo){
+      var guardado=borradorIncidencia(clave);
+      if(guardado&&guardado.fechaCaptura===borrador.fechaCaptura)localStorage.removeItem(clave);
+    }
     if(U&&U.uid===uid){
       if(!CACHE.punchlist)CACHE.punchlist={};
-      CACHE.punchlist[id]=result.snapshot.val();
+      CACHE.punchlist[id]=confirmado;
       R();
-      showToast(result.committed?'Incidencia añadida al Punchlist':'Esta medida ya está en el Punchlist.','var(--ac)');
+      var aviso=result.committed||mismo?'Incidencia añadida al Punchlist':'El control ya tiene una incidencia. Revisa el borrador local.';
+      showToast(aviso,result.committed||mismo?'var(--ac)':'var(--warn)');
     }
   }catch(error){showToast(error.message||'No se pudo guardar la incidencia.','var(--no)')}
   finally{boton.disabled=false}
@@ -1692,7 +1743,7 @@ function rQualTracker(a){
             h+='<input class="inp" type="number" step="any" value="'+(v!=null?v:'')+'" onchange="'+saveFn+'(\''+code+'\',\''+k+'\',Number.isFinite(this.valueAsNumber)?this.valueAsNumber:null)" style="margin-top:6px;height:40px;font-size:16px;'+(outTol?'border-color:var(--no);color:var(--no)':'')+'" placeholder="'+f.unit+'">';
           }
           if(tolLabel)h+='<div style="font-size:9px;color:var(--tx3);margin-top:4px">'+tolLabel+'</div>';
-          h+=bloqueIncidenciaMedida(code,k,outTol,viewOnly);
+          h+=bloqueIncidenciaMedida(code,k,lecturaIncidencia(code,k,qd),viewOnly);
           // Show accumulated distance for tramo fields
           if(f.isTramo){
             var ad=calcAccumDist(qd,px,pi,mpI,m.type);
@@ -2887,6 +2938,7 @@ function anexoMedidasPunchlist(doc,items,pv,sub,phase){
       textoLectura('Medida inicial',m),
       'Detectado'+metadata(inc.detectadoPor,inc.fechaDeteccion)
     ];
+    if(inc.fechaCaptura)filas.push('Capturada en el dispositivo'+metadata(null,inc.fechaCaptura));
     if(inc.fechaReparacion)filas.push('Reparado'+metadata(inc.reparadoPor,inc.fechaReparacion));
     filas.push(inc.reinspeccion?textoLectura('Reinspección',inc.reinspeccion):'Reinspección: pendiente');
     if(inc.fechaVerificacion)filas.push('Verificado'+metadata(inc.verificadoPor,inc.fechaVerificacion));

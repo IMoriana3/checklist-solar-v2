@@ -5,6 +5,10 @@ const { abrirApp } = require('./arnes_navegador.cjs');
 const tracker = 'TR01.015', campo = 'fm_1_vert_ns', id = 'med_TR01_015_' + campo;
 const calidad = { [campo]: 120, [campo+'_ts']: 2000, [campo+'_by']: 'Inspector' };
 const legado = { tracker, pilar:'3N-MP', pv:1, sub:0, phase:'hincado', desc:'Manual', estado:'pendiente' };
+const foto = {
+  name:'poste.png',mimeType:'image/png',
+  buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==','base64')
+};
 const leer = page => page.evaluate(id => window.__FB_STORE.punchlist?.[id], id);
 const pantalla = (page, mode) => page.evaluate(([tracker, mode]) => {
   Object.assign(V, {screen:mode,calTr:tracker,qTab:'cim',qFila:'motor',qPi:1,viewOnly:false});
@@ -22,10 +26,7 @@ const guardarMedida = (page, valor, ts) => page.evaluate(([campo, valor, ts]) =>
   try {
     await pantalla(page,'qualtracker');
     await abrir(page);
-    await page.locator('input[name=foto]').setInputFiles({
-      name:'poste.png',mimeType:'image/png',
-      buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==','base64')
-    });
+    await page.locator('input[name=foto]').setInputFiles(foto);
     await guardar(page);
     await estado(page,'pendiente');
     await page.getByText('Ver incidencia · pendiente',{exact:true}).waitFor();
@@ -71,4 +72,32 @@ const guardarMedida = (page, valor, ts) => page.evaluate(([campo, valor, ts]) =>
     assert.deepEqual(app.errores,[]);
     console.log('Incidencia con foto, reparación, reinspección, nueva incidencia e historial OK');
   } finally {await app.cerrar()}
+  const desconectada = await abrirApp({offline:true,semilla:{quality:{TR01_015:calidad}}});
+  try {
+    const page = desconectada.page;
+    await pantalla(page,'qualtracker');
+    await abrir(page);
+    await page.locator('input[name=foto]').setInputFiles(foto);
+    await page.getByRole('button',{name:'Guardar borrador'}).click();
+    await page.getByText('Borrador de incidencia',{exact:true}).waitFor();
+    assert.equal(await leer(page),undefined);
+    await page.close();
+
+    // Al reabrir con conexión, el servidor puede mostrar ya otra lectura. Se envía la original.
+    const semilla = {quality:{TR01_015:{...calidad,[campo]:102}}};
+    const reabierta = await desconectada.otraPagina({offline:false,semilla});
+    await pantalla(reabierta.page,'qualtracker');
+    await reabierta.page.getByText('Borrador de incidencia',{exact:true}).click();
+    await reabierta.page.getByRole('link',{name:'Descargar foto del borrador'}).waitFor();
+    await reabierta.page.getByRole('button',{name:'Enviar borrador'}).click();
+    await estado(reabierta.page,'pendiente');
+    const nc = await leer(reabierta.page);
+    assert.equal(nc.medicion.valor,120);
+    assert.match(nc.foto,/^data:image\/jpeg;base64,/);
+    assert.ok(nc.fechaCaptura<=nc.fechaDeteccion);
+    await reabierta.page.getByText('Ver incidencia · pendiente',{exact:true}).click();
+    assert.equal(await reabierta.page.getByRole('button',{name:'Descartar borrador'}).count(),0);
+    assert.deepEqual(reabierta.errores,[]);
+    console.log('Borrador offline con foto, cierre de página y envío de la lectura original OK');
+  } finally {await desconectada.cerrar()}
 })().catch(error => {console.error(error);process.exitCode=1});
