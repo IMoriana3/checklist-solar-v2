@@ -100,4 +100,43 @@ const guardarMedida = (page, valor, ts) => page.evaluate(([campo, valor, ts]) =>
     assert.deepEqual(reabierta.errores,[]);
     console.log('Borrador offline con foto, cierre de página y envío de la lectura original OK');
   } finally {await desconectada.cerrar()}
+  const fase = await abrirApp({semilla:{
+    workflow:{'1_0_hincado':{state:'CAL'}},
+    punchlist:{
+      primera:legado,
+      segunda:{...legado,estado:'reparado'},
+      otroSubcampo:{...legado,sub:1},
+      otraFase:{...legado,phase:'montaje'}
+    }
+  }});
+  try {
+    const page = fase.page;
+    await page.evaluate(() => {Object.assign(V,{screen:'caldetail',calPv:1,calSub:0,viewOnly:false});R()});
+    const aprobar = page.getByRole('button',{name:'✅ Aprobado',exact:true});
+    await page.getByText('Quedan 2 incidencias por verificar.',{exact:true}).waitFor();
+    assert.equal(await aprobar.isEnabled(),false);
+    // Aunque la vista no tenga la caché cargada, la acción comprueba los datos de la fase.
+    await page.evaluate(async () => { CACHE.punchlist={}; await setWFState(1,0,'hincado','OK','admin'); });
+    assert.equal(await page.evaluate(() => window.__FB_STORE.workflow['1_0_hincado'].state),'CAL');
+    assert.equal(await page.evaluate(() => window.__FB_STORE.workflow_log),undefined);
+
+    await page.evaluate(async () => {
+      await db.ref('punchlist/primera').update({estado:'verificado'});
+      await db.ref('punchlist/segunda').update({estado:'verificado'});
+      ONLINE=false;
+      await setWFState(1,0,'hincado','OK','manual');
+    });
+    assert.equal(await page.evaluate(() => window.__FB_STORE.workflow['1_0_hincado'].state),'CAL');
+    await page.evaluate(async () => {
+      ONLINE=true;
+      await Promise.all([setWFState(1,0,'hincado','OK','manual'),setWFState(1,0,'hincado','OK','manual')]);
+    });
+    const aprobacion = await page.evaluate(() => ({
+      estado:window.__FB_STORE.workflow['1_0_hincado'].state,
+      log:Object.values(window.__FB_STORE.workflow_log).map(item => [item.key,item.state])
+    }));
+    assert.deepEqual(aprobacion,{estado:'OK',log:[['1_0_hincado','OK']]});
+    assert.deepEqual(fase.errores,[]);
+    console.log('Aprobación de fase: incidencias pendientes, reparadas, datos por fase y conexión OK');
+  } finally {await fase.cerrar()}
 })().catch(error => {console.error(error);process.exitCode=1});
