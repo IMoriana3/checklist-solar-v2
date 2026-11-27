@@ -3,7 +3,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 rc=0
-for t in tests/test_plantas.cjs tests/test_cola.cjs tests/test_sin_fijos.cjs tests/test_arranque.cjs tests/test_no_registrado.cjs tests/test_sin_conexion.cjs tests/test_vista_aerea.cjs tests/test_soportes.cjs; do
+for t in tests/test_plantas.cjs tests/test_cola.cjs tests/test_sin_fijos.cjs tests/test_arranque.cjs tests/test_no_registrado.cjs tests/test_sin_conexion.cjs tests/test_vista_aerea.cjs tests/test_soportes.cjs tests/test_incidencia_medida.cjs tests/test_punchlist_pdf.cjs; do
   echo "── $t"
   node "$t" || rc=1
 done

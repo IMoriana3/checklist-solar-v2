@@ -10,12 +10,13 @@ function check(nombre, cond) { if (cond) ok++; else { fallos++; console.error('F
 
 const PAGINAS = ['index.html', 'dashboard.html'];
 const PROHIBIDOS = ['ISFV ATALAYA', 'XAMAI', 'X-ELIO', 'Xamai Global', "'2025-06-02'", "'2026-09-15'", "'1.756 trackers'",
-  'totalPilars=15000', 'var PCFG={', 'base64,', '<script src="master.js">', '<script src="master_con.js">', 'Dashboard ATALAYA',
+  'totalPilars=15000', 'var PCFG={', '<script src="master.js">', '<script src="master_con.js">', 'Dashboard ATALAYA',
   "'templates/plantilla_"];
 
 for (const p of PAGINAS) {
   const t = fs.readFileSync(path.join(RAIZ, p), 'utf8');
   for (const s of PROHIBIDOS) check(p + ' no contiene «' + s + '»', !t.includes(s));
+  check(p + ' no incrusta datos de planta en base64', !/base64,[A-Za-z0-9+/]{16,}/.test(t));
   check(p + ' carga plantas.js antes del código de la app', t.includes('<script src="plantas.js"></script>') &&
     t.indexOf('<script src="plantas.js"></script>') < t.indexOf('firebase.initializeApp('));
   check(p + ' se para sin planta válida antes de iniciar Firebase', /if\(!window\.PLANTA\)\{[\s\S]*?throw new Error\('PLANTA no disponible'\)\}\s*\n\S*[\s\S]*?firebase\.initializeApp\(/.test(t) &&

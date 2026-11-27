@@ -57,6 +57,17 @@
     r.then = function (a, b) { return p.then(a, b); }; r.catch = function (b) { return p.catch(b); };
     return r;
   };
+  Ref.prototype.transaction = function (change) {
+    var self = this, value = change(get(self.path));
+    log('transaction', self.path);
+    if (value === undefined) return Promise.resolve({ committed: false, snapshot: new Snap(self.path) });
+    var now = Date.now();
+    value = JSON.parse(JSON.stringify(value), function (k, v) { return v && v['.sv'] === 'timestamp' ? now : v; });
+    return confirmar('transaction', self.path, value).then(function () {
+      put(self.path, value);
+      return { committed: true, snapshot: new Snap(self.path) };
+    });
+  };
   Ref.prototype.keepSynced = function () { log('keepSynced', this.path); };
   function database() { return { ref: function (p) { return new Ref(p || ''); }, goOnline: function () {}, goOffline: function () {} }; }
   database.ServerValue = { TIMESTAMP: { '.sv': 'timestamp' } };

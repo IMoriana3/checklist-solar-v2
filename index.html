@@ -365,12 +365,63 @@ function getWFState(pv,sub,phase){
 }
 
 function setWFState(pv,sub,phase,state,trigger){
+  if(state==='OK')return apruebaFase(pv,sub,phase,trigger);
   var key=pv+'_'+sub+'_'+phase;
   var data={state:state,since:firebase.database.ServerValue.TIMESTAMP,by:U.name,trigger:trigger||'manual',uid:U.uid};
   db.ref('workflow/'+key).set(data);
   // Log
   db.ref('workflow_log').push({key:key,state:state,by:U.name,uid:U.uid,trigger:trigger,ts:firebase.database.ServerValue.TIMESTAMP});
   toast('Estado: '+WF_STATES[state].i+' '+WF_STATES[state].l,'var(--sf)');
+}
+
+var aprobacionesEnCurso=new Set();
+async function apruebaFase(pv,sub,phase,trigger){
+  if(!isCal()||V.viewOnly)return;
+  if(!ONLINE){toast('Conéctate para comprobar el Punchlist y aprobar la fase.','var(--warn)');return}
+  var key=pv+'_'+sub+'_'+phase;
+  if(aprobacionesEnCurso.has(key))return;
+  aprobacionesEnCurso.add(key);
+  var uid=U.uid;
+  try{
+    var lista=await db.ref('punchlist').once('value');
+    if(!U||U.uid!==uid||!isCal()||V.viewOnly||!ONLINE)return;
+    CACHE.punchlist=lista.val()||{};
+    var pendientes=getPLItems(pv,sub,phase).filter(incidenciaSinVerificar).length;
+    if(pendientes){
+      R();
+      toast(mensajeFasePendiente(pendientes),'var(--warn)');
+      return;
+    }
+    var borradores=borradoresEnFase(pv,sub,phase);
+    if(borradores){
+      R();
+      toast(mensajeBorradoresEnFase(borradores),'var(--warn)');
+      return;
+    }
+    var fecha=firebase.database.ServerValue.TIMESTAMP;
+    var logId=DB_PLANTA.ref('workflow_log').push().key;
+    var changes={};
+    changes['workflow/'+key]={state:'OK',since:fecha,by:U.name,uid:uid,trigger:trigger||'manual'};
+    changes['workflow_log/'+logId]={key:key,state:'OK',by:U.name,uid:uid,trigger:trigger||'manual',ts:fecha};
+    // No dejar una aprobación antigua en la cola sin volver a comprobar el Punchlist.
+    await DB_PLANTA.ref().update(changes);
+    toast('Fase aprobada','var(--ac)');
+  }catch(error){toast('No se pudo aprobar la fase: '+error.message,'var(--no)')}
+  finally{aprobacionesEnCurso.delete(key)}
+}
+function borradoresEnFase(pv,sub,phase){
+  if(phase!=='hincado')return 0;
+  return borradoresIncidencias().filter(function(item){
+    var seguidor=MASTER_DATA[item.code];
+    return String(seguidor.pv)===String(pv)&&String(seguidor.sub||0)===String(sub);
+  }).length;
+}
+function mensajeBorradoresEnFase(n){
+  return n===1?'Queda 1 borrador de incidencia en este dispositivo.':'Quedan '+n+' borradores de incidencias en este dispositivo.';
+}
+function incidenciaSinVerificar(item){return item.d.estado!=='verificado'}
+function mensajeFasePendiente(n){
+  return n===1?'Queda 1 incidencia por verificar.':'Quedan '+n+' incidencias por verificar.';
 }
 
 function wfBadge(pv,sub,phase){
@@ -404,11 +455,283 @@ function addPLItem(pv,sub,phase,tracker,pilar,campo,desc){
 }
 
 function setPLEstado(id,estado){
+  if(CACHE.punchlist&&CACHE.punchlist[id]&&CACHE.punchlist[id].medicion){
+    cambiaIncidenciaMedida(id,estado);
+    return;
+  }
   var updates={estado:estado};
   if(estado==='reparado'){updates.reparadoPor=U.name;updates.reparadoUid=U.uid;updates.fechaReparacion=firebase.database.ServerValue.TIMESTAMP}
   if(estado==='verificado'){updates.verificadoPor=U.name;updates.verificadoUid=U.uid;updates.fechaVerificacion=firebase.database.ServerValue.TIMESTAMP}
   db.ref('punchlist/'+id).update(updates);
   toast(estado==='reparado'?'Marcado como reparado':'Verificado','var(--ac)');
+}
+
+
+// Incidencias ligadas a una medida de Cimentaciones, en el Punchlist de la planta.
+// Estas acciones esperan confirmación en línea: un reenvío como set sobrescribiría cambios de otro usuario.
+function idIncidenciaMedida(code,campo){
+  return 'med_'+code.replace(/\./g,'_')+'_'+campo;
+}
+function lecturaIncidencia(code,campo,datos){
+  var m=MASTER_DATA[code];
+  var partes=/^(fm|fc)_(\d+)_(\w+)$/.exec(campo);
+  if(!m||!partes)return null;
+  var cfg=PCFG[m.type],fila=partes[1]==='fm'?'motor':'conducida',i=Number(partes[2]);
+  var f=MED.find(function(item){return item.id===partes[3]&&item.type==='number'});
+  if(!cfg||!cfg[fila]||!cfg[fila][i]||!f||!Number.isFinite(datos[campo]))return null;
+  var tramo=f.isTramo&&i!==getMPi(m.type)?getTramoTol(m.type,i):null;
+  var limites=tramo?[tramo.min,tramo.max]:f.tol;
+  if(!limites)return null;
+  return {
+    pilar:cfg[fila][i],fila:fila,indice:i,campo:campo,control:f.label,valor:datos[campo],
+    unidad:f.unit,min:limites[0],max:limites[1],fecha:datos[campo+'_ts']||null,
+    autor:datos[campo+'_by']||null
+  };
+}
+function fueraDeLimite(m){return m.valor<m.min||m.valor>m.max}
+function textoMedida(m){return m.valor+' '+m.unidad+' · límite '+m.min+'–'+m.max+' '+m.unidad}
+
+function fotoPunchlistValida(foto){
+  return /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(foto||'');
+}
+function fichaIncidenciaMedida(p){
+  if(!p.medicion)return '';
+  var html=PlantasObra.html;
+  function ciclo(c){
+    var h='<div style="font-size:12px">Inicial: '+html(textoMedida(c.medicion))+'</div>';
+    if(c.reinspeccion)h+='<div style="font-size:12px">Reinspección: '+html(textoMedida(c.reinspeccion))+'</div>';
+    if(fotoPunchlistValida(c.foto))
+      h+='<a href="'+html(c.foto)+'" download="incidencia.jpg" style="display:inline-block;margin:6px 0;color:var(--ac)">Descargar foto</a>';
+    return h;
+  }
+  var h=ciclo(p);
+  if(p.historial&&p.historial.length){
+    h+='<details><summary>Incidencias anteriores ('+p.historial.length+')</summary>';
+    p.historial.slice().reverse().forEach(function(c){h+='<div class="pl-item">'+ciclo(c)+'</div>'});
+    h+='</details>';
+  }
+  return h;
+}
+function prefijoBorradorIncidencia(uid){return 'obra:nc:'+PLANTA.id+':'+uid+':'}
+function claveBorradorIncidencia(uid,code,campo){
+  return prefijoBorradorIncidencia(uid)+idIncidenciaMedida(code,campo);
+}
+function borradorIncidencia(clave){
+  try{return JSON.parse(localStorage.getItem(clave)||'null')}catch(e){return null}
+}
+function borradoresIncidencias(){
+  if(!isCal()||V.viewOnly)return [];
+  var prefijo=prefijoBorradorIncidencia(U.uid)+'med_';
+  var borradores=[];
+  try{
+    var codigos=new Map(Object.keys(MASTER_DATA).map(function(code){return [code.replace(/\./g,'_'),code]}));
+    for(var i=0;i<localStorage.length;i++){
+      var clave=localStorage.key(i);
+      if(!clave||!clave.startsWith(prefijo))continue;
+      var b=borradorIncidencia(clave);
+      var campo=b&&b.medicion&&b.medicion.campo;
+      if(typeof campo!=='string'||!clave.endsWith('_'+campo))continue;
+      var code=codigos.get(clave.slice(prefijo.length,-campo.length-1));
+      if(code)borradores.push({code:code,b:b});
+    }
+  }catch(e){return []}
+  return borradores;
+}
+function listadoBorradoresIncidencia(){
+  var borradores=borradoresIncidencias().sort(function(x,y){return y.b.fechaCaptura-x.b.fechaCaptura});
+  if(!borradores.length)return '';
+  var esc=PlantasObra.html;
+  return '<section aria-label="Borradores de incidencias" class="card" style="margin-bottom:12px">'+
+    '<div class="stitle" style="margin-top:0">Borradores de incidencias ('+borradores.length+')</div>'+
+    '<p style="font-size:12px;color:var(--td)">Guardados en este dispositivo.</p>'+
+    borradores.map(function(item){
+      var m=item.b.medicion,seguidor=MASTER_DATA[item.code];
+      var zona='PV'+String(seguidor.pv).padStart(2,'0')+' / Sub'+(seguidor.sub||0);
+      return '<button type="button" class="btn btn-ghost" style="text-align:left;width:100%;min-height:44px;margin-top:5px" data-tracker="'+esc(item.code)+'" data-campo="'+esc(m.campo)+'" onclick="abreBorradorDesdeCalidad(this)">'+
+        '<strong>'+esc(item.code+' · '+m.pilar)+'</strong><br>'+
+        '<span style="font-size:12px;color:var(--td)">'+esc(zona+' · '+m.control+' · '+m.valor+' '+m.unidad+(item.b.foto?' · Con foto':''))+'</span></button>';
+    }).join('')+'</section>';
+}
+function abreBorradorDesdeCalidad(boton){
+  if(!isCal()||V.viewOnly)return;
+  var code=boton.dataset.tracker,campo=boton.dataset.campo;
+  var b=borradorIncidencia(claveBorradorIncidencia(U.uid,code,campo));
+  if(!b||!b.medicion){R();return}
+  var seguidor=MASTER_DATA[code];
+  if(!seguidor)return;
+  V.campoBorrador=campo;
+  muestraControlIncidencia(code,seguidor.pv,seguidor.sub||0,b.medicion);
+}
+function descartaBorradorIncidencia(boton){
+  if(V.viewOnly||!isCal())return;
+  try{
+    localStorage.removeItem(claveBorradorIncidencia(U.uid,boton.dataset.tracker,boton.dataset.campo));
+    R();
+  }catch(e){showToast('No se pudo eliminar el borrador.','var(--no)')}
+}
+function bloqueIncidenciaMedida(code,campo,lectura,viewOnly){
+  var id=idIncidenciaMedida(code,campo);
+  var item=(CACHE.punchlist||{})[id];
+  var abierta=item&&item.estado!=='verificado';
+  var outTol=lectura&&fueraDeLimite(lectura);
+  var edita=!viewOnly&&isCal();
+  var borrador=edita?borradorIncidencia(claveBorradorIncidencia(U.uid,code,campo)):null;
+  if(!item&&!outTol&&!borrador)return '';
+  var consultar=abierta||(item&&!outTol&&!borrador);
+  var titulo=consultar?'Ver incidencia · '+item.estado:borrador?'Borrador de incidencia':'Abrir incidencia';
+  var h='<details id="inc-'+PlantasObra.html(id)+'" class="pl-item" style="margin-top:8px"'+(borrador&&V.campoBorrador===campo?' open':'')+'><summary>'+PlantasObra.html(titulo)+'</summary>';
+  if(consultar){
+    h+=fichaIncidenciaMedida(item);
+    if(edita&&item.estado==='reparado'){
+      h+='<p style="font-size:12px;color:var(--td)">Guarda una nueva medida en el control y verifica la reparación.</p>';
+      h+='<button type="button" class="btn btn-primary" data-incidencia="'+PlantasObra.html(id)+'" onclick="cambiaIncidenciaMedida(this.dataset.incidencia,\'verificado\',this)">Verificar con la nueva medida</button>';
+    }
+  }
+  if(edita){
+    var destino=' data-tracker="'+PlantasObra.html(code)+'" data-campo="'+PlantasObra.html(campo)+'"';
+    if(borrador){
+      h+='<p style="font-size:12px;color:var(--td)">Borrador en este dispositivo · '+PlantasObra.html(textoMedida(borrador.medicion))+(borrador.foto?' · Con foto':'')+'.</p>';
+      if(fotoPunchlistValida(borrador.foto))h+='<a href="'+PlantasObra.html(borrador.foto)+'" download="borrador-incidencia.jpg">Descargar foto del borrador</a>';
+      h+='<button class="btn btn-ghost" type="button"'+destino+' onclick="descartaBorradorIncidencia(this)">Descartar borrador</button>';
+    }
+    if(!consultar&&(outTol||borrador)){
+      h+='<form'+destino+' data-lectura="'+PlantasObra.html(JSON.stringify(lectura))+'" onsubmit="event.preventDefault();abreIncidenciaMedida(this)">';
+      if(!borrador)h+='<label style="display:block;margin:8px 0;font-size:12px">Foto del poste (opcional)<input type="file" name="foto" accept="image/jpeg,image/png,image/webp" style="display:block;max-width:100%;margin-top:4px"></label>';
+      var accion=borrador?'Enviar borrador':ONLINE?'Añadir al Punchlist':'Guardar borrador';
+      h+='<button class="btn btn-danger" type="submit">'+accion+'</button></form>';
+    }
+  }else if(!consultar)return '';
+  return h+'</details>';
+}
+async function fotoIncidencia(file){
+  if(!file)return null;
+  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>15000000)
+    throw new Error('Selecciona una foto JPG, PNG o WebP de hasta 15 MB.');
+  var url=URL.createObjectURL(file);
+  try{
+    var img=new Image();
+    img.src=url;
+    await img.decode();
+    var escala=Math.min(1,720/Math.max(img.naturalWidth,img.naturalHeight));
+    var canvas=document.createElement('canvas');
+    canvas.width=Math.max(1,Math.round(img.naturalWidth*escala));
+    canvas.height=Math.max(1,Math.round(img.naturalHeight*escala));
+    var ctx=canvas.getContext('2d');
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    var foto=canvas.toDataURL('image/jpeg',0.64);
+    if(foto.length>150000)throw new Error('La foto supera el tamaño de almacenamiento. Selecciona otra.');
+    return foto;
+  }finally{URL.revokeObjectURL(url)}
+}
+async function abreIncidenciaMedida(form){
+  if(V.viewOnly||!isCal())return;
+  var code=form.dataset.tracker,campo=form.dataset.campo;
+  if(_qfTimers[code+'_'+campo]){showToast('Espera a que se guarde la medida.','var(--warn)');return}
+  var boton=form.querySelector('button[type=submit]');
+  if(boton.disabled)return;
+  boton.disabled=true;
+  var uid=U.uid,clave=claveBorradorIncidencia(uid,code,campo);
+  try{
+    var borrador=borradorIncidencia(clave);
+    var enviaBorrador=Boolean(borrador);
+    if(!borrador){
+      var lectura=JSON.parse(form.dataset.lectura);
+      if(ONLINE){
+        var snap=await db.ref('quality/'+code.replace(/\./g,'_')).once('value');
+        lectura=lecturaIncidencia(code,campo,snap.val()||{});
+      }
+      if(!lectura||!fueraDeLimite(lectura))throw new Error('Guarda primero una medida fuera de tolerancia.');
+      var foto=await fotoIncidencia(form.elements.foto.files[0]);
+      borrador={medicion:lectura,foto:foto,fechaCaptura:Date.now()};
+    }
+    if(!U||U.uid!==uid||!isCal()||V.viewOnly)return;
+    if(!ONLINE&&enviaBorrador){showToast('El borrador sigue guardado. Conéctate para enviarlo.','var(--warn)');return}
+    try{localStorage.setItem(clave,JSON.stringify(borrador))}
+    catch(error){
+      if(!ONLINE)throw new Error('No hay espacio para guardar el borrador en este dispositivo.');
+    }
+    if(!ONLINE){
+      R();
+      showToast('Borrador guardado en este dispositivo.','var(--ac)');
+      return;
+    }
+    var lectura=borrador.medicion,m=MASTER_DATA[code],id=idIncidenciaMedida(code,campo);
+    var item={
+      pv:m.pv,sub:m.sub||0,phase:'hincado',tracker:code,pilar:lectura.pilar,campo:campo,
+      desc:lectura.control+': '+textoMedida(lectura),estado:'pendiente',
+      detectadoPor:U.name,uid:uid,fechaDeteccion:firebase.database.ServerValue.TIMESTAMP,
+      fechaCaptura:borrador.fechaCaptura,medicion:lectura
+    };
+    if(borrador.foto)item.foto=borrador.foto;
+    var result=await db.ref('punchlist/'+id).transaction(function(actual){
+      if(!actual)return item;
+      if(actual.estado!=='verificado'||!(lectura.fecha>(actual.reinspeccion||{}).fecha))return;
+      var anterior=Object.assign({},actual);
+      delete anterior.historial;
+      return Object.assign({},item,{historial:(actual.historial||[]).concat(anterior)});
+    },null,false);
+    var confirmado=result.snapshot.val();
+    var mismo=confirmado&&confirmado.uid===uid&&confirmado.fechaCaptura===borrador.fechaCaptura;
+    if(result.committed||mismo){
+      var guardado=borradorIncidencia(clave);
+      if(guardado&&guardado.fechaCaptura===borrador.fechaCaptura)localStorage.removeItem(clave);
+    }
+    if(U&&U.uid===uid){
+      if(!CACHE.punchlist)CACHE.punchlist={};
+      CACHE.punchlist[id]=confirmado;
+      R();
+      var aviso=result.committed||mismo?'Incidencia añadida al Punchlist':'El control ya tiene una incidencia. Revisa el borrador local.';
+      showToast(aviso,result.committed||mismo?'var(--ac)':'var(--warn)');
+    }
+  }catch(error){showToast(error.message||'No se pudo guardar la incidencia.','var(--no)')}
+  finally{boton.disabled=false}
+}
+function abreControlIncidencia(id){
+  var p=(CACHE.punchlist||{})[id];
+  if(!p||!p.medicion||(!isCal()&&!isCon()))return;
+  muestraControlIncidencia(p.tracker,p.pv,p.sub,p.medicion);
+}
+function muestraControlIncidencia(code,pv,sub,medicion){
+  V.calTr=code;V.calPv=pv;V.calSub=sub;
+  V.qTab='cim';V.qFila=medicion.fila;V.qPi=medicion.indice;
+  V.viewOnly=!isCal();V.screen='qualtracker';
+  R();
+}
+async function cambiaIncidenciaMedida(id,estado,boton){
+  var p=(CACHE.punchlist||{})[id];
+  if(!p||!p.medicion||V.viewOnly||!(estado==='reparado'?isCon():isCal()))return;
+  if(!ONLINE){showToast('Conéctate para actualizar la incidencia.','var(--warn)');return}
+  if(_qfTimers[p.tracker+'_'+p.campo]){showToast('Espera a que se guarde la medida.','var(--warn)');return}
+  if(boton&&boton.disabled)return;
+  if(boton)boton.disabled=true;
+  var uid=U.uid;
+  try{
+    var nueva=null;
+    if(estado==='verificado'){
+      var s=await db.ref('quality/'+p.tracker.replace(/\./g,'_')).once('value');
+      nueva=lecturaIncidencia(p.tracker,p.campo,s.val()||{});
+      if(!nueva||fueraDeLimite(nueva)||!Number.isFinite(nueva.fecha)||nueva.fecha<=p.fechaReparacion)
+        throw new Error('Registra una medida conforme posterior a la reparación.');
+    }
+    if(!U||U.uid!==uid||V.viewOnly||!(estado==='reparado'?isCon():isCal()))return;
+    var nombre=U.name,fecha=firebase.database.ServerValue.TIMESTAMP;
+    var result=await db.ref('punchlist/'+id).transaction(function(actual){
+      if(!actual||actual.estado!==p.estado||actual.fechaDeteccion!==p.fechaDeteccion||actual.fechaReparacion!==p.fechaReparacion)return;
+      if(estado==='reparado'&&actual.estado==='pendiente')
+        return Object.assign({},actual,{estado:estado,reparadoPor:nombre,reparadoUid:uid,fechaReparacion:fecha});
+      if(estado==='verificado'&&actual.estado==='reparado'&&nueva.fecha>actual.fechaReparacion)
+        return Object.assign({},actual,{estado:estado,verificadoPor:nombre,verificadoUid:uid,fechaVerificacion:fecha,reinspeccion:nueva});
+      if(estado==='pendiente'&&actual.estado==='reparado')return Object.assign({},actual,{estado:estado});
+    },null,false);
+    if(U&&U.uid===uid){
+      CACHE.punchlist[id]=result.snapshot.val();
+      R();
+      showToast(result.committed?'Incidencia actualizada':'La incidencia cambió. Revisa su estado.','var(--ac)');
+    }
+  }catch(error){showToast(error.message||'No se pudo actualizar la incidencia.','var(--no)')}
+  finally{if(boton)boton.disabled=false}
 }
 
 // ============================================================
@@ -1172,7 +1495,7 @@ function rConDetail(a){
         var p=item.d;
         var stC=p.estado==='pendiente'?'var(--no)':p.estado==='reparado'?'var(--warn)':'var(--ac)';
         h+='<div class="pl-item"><div style="display:flex;justify-content:space-between"><div style="font-weight:700;font-size:12px">'+p.tracker+' · '+p.pilar+'</div><span class="badge" style="background:'+stC+'22;color:'+stC+'">'+p.estado+'</span></div>';
-        h+='<div style="font-size:12px;margin-top:4px">'+p.desc+'</div>';
+        h+='<div style="font-size:12px;margin-top:4px">'+PlantasObra.html(p.desc||'')+'</div>'+fichaIncidenciaMedida(p);
         if(p.estado==='pendiente')h+='<button onclick="setPLEstado(\''+item.id+'\',\'reparado\');R()" class="btn btn-warn" style="margin-top:8px;padding:8px;font-size:12px">🔧 Marcar reparado</button>';
         h+='</div>';
       });
@@ -1203,7 +1526,7 @@ function rConDetail(a){
 }
 
 function rCalDetail(a){
-  var pv=V.calPv||V.conPv,sub=V.calSub||V.conSub;
+  var pv=V.calPv||V.conPv,sub=V.calSub==null?V.conSub:V.calSub;
   if(!pv){V.screen='calselect';R();return}
   var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'calselect\';R()">←</button><div><h1>✅ PV'+String(pv).padStart(2,'0')+'/Sub'+sub+'</h1><div class="sub">Workflow Calidad</div></div></div>';
   h+='<div class="cnt" style="padding-top:10px">';
@@ -1222,13 +1545,16 @@ function rCalDetail(a){
     
     // Punchlist items
     var plItems=getPLItems(pv,sub,phase);
+    var pendientes=plItems.filter(incidenciaSinVerificar).length;
+    var borradores=canReview?borradoresEnFase(pv,sub,phase):0;
     if(plItems.length>0){
       plItems.forEach(function(item){
         var p=item.d;
         var stC=p.estado==='pendiente'?'var(--no)':p.estado==='reparado'?'var(--warn)':'var(--ac)';
         h+='<div class="pl-item"><div style="display:flex;justify-content:space-between"><div style="font-weight:700;font-size:12px">'+p.tracker+' · '+p.pilar+'</div><span class="badge" style="background:'+stC+'22;color:'+stC+'">'+p.estado+'</span></div>';
-        h+='<div style="font-size:12px;margin-top:4px">'+p.desc+'</div>';
-        if(p.estado==='reparado')h+='<div style="display:flex;gap:6px;margin-top:6px"><button onclick="setPLEstado(\''+item.id+'\',\'verificado\')" class="btn btn-primary" style="flex:1;padding:8px;font-size:11px">✅ OK</button><button onclick="setPLEstado(\''+item.id+'\',\'pendiente\')" class="btn btn-danger" style="flex:1;padding:8px;font-size:11px">❌ No OK</button></div>';
+        h+='<div style="font-size:12px;margin-top:4px">'+PlantasObra.html(p.desc||'')+'</div>'+fichaIncidenciaMedida(p);
+        if(p.medicion)h+='<button type="button" class="btn btn-ghost" data-incidencia="'+PlantasObra.html(item.id)+'" onclick="abreControlIncidencia(this.dataset.incidencia)">Abrir control del poste</button>';
+        else if(p.estado==='reparado')h+='<div style="display:flex;gap:6px;margin-top:6px"><button onclick="setPLEstado(\''+item.id+'\',\'verificado\')" class="btn btn-primary" style="flex:1;padding:8px;font-size:11px">✅ OK</button><button onclick="setPLEstado(\''+item.id+'\',\'pendiente\')" class="btn btn-danger" style="flex:1;padding:8px;font-size:11px">❌ No OK</button></div>';
         h+='</div>';
       });
     }
@@ -1244,13 +1570,19 @@ function rCalDetail(a){
       h+='</div>';
     }
     
+    if(pendientes&&canReview)h+='<p style="color:var(--warn);font-size:12px">'+mensajeFasePendiente(pendientes)+'</p>';
+    if(borradores){
+      h+='<p style="color:var(--warn);font-size:12px">'+mensajeBorradoresEnFase(borradores)+'</p>';
+      h+='<button type="button" class="btn btn-ghost" onclick="V.screen=\'calselect\';R()">Ver borradores</button>';
+    }
+
     // Action buttons
     if(wf.state==='REV'||wf.state==='RREV')h+='<button onclick="setWFState('+pv+','+sub+',\''+phase+'\',\'CAL\',\'manual\')" class="btn btn-info" style="margin-top:8px;padding:10px;font-size:13px">🔍 Empezar revisión</button>';
     if(wf.state==='CAL'){
-      h+='<button onclick="setWFState('+pv+','+sub+',\''+phase+'\',\'OK\',\'manual\')" class="btn btn-primary" style="margin-top:8px;padding:10px;font-size:13px">✅ Aprobado</button>';
+      h+='<button onclick="setWFState('+pv+','+sub+',\''+phase+'\',\'OK\',\'manual\')" class="btn btn-primary" '+(pendientes||borradores?'disabled ':'')+'style="margin-top:8px;padding:10px;font-size:13px">✅ Aprobado</button>';
       h+='<button onclick="setWFState('+pv+','+sub+',\''+phase+'\',\'PUN\',\'manual\')" class="btn btn-danger" style="margin-top:6px;padding:10px;font-size:13px">📝 Generar Punchlist</button>';
     }
-    var plCount=getPLItems(pv,sub,phase).length;
+    var plCount=plItems.length;
     if(plCount>0){
       h+='<button onclick="exportPunchlistPDF('+pv+','+sub+',\''+phase+'\')" class="btn btn-ghost" style="margin-top:6px;padding:10px;font-size:12px">📄 Exportar Punchlist PDF</button>';
     }
@@ -1274,6 +1606,7 @@ function rCalSelect(a){
   var pvs=[...new Set(Object.values(MASTER_DATA).map(function(d){return d.pv}))].sort(function(a2,b){return a2-b});
   var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'modesel\';R()">←</button><div><h1>✅ Calidad</h1><div class="sub">Selecciona zona</div></div></div>';
   h+='<div class="cnt" style="padding-top:14px">';
+  h+=listadoBorradoresIncidencia();
   h+='<div class="stitle">PV</div><select class="sel" id="qsp" onchange="V.calPv=parseInt(this.value);V.calSub=0;renderCalSubs()"><option value="">Selecciona PV</option>';
   pvs.forEach(function(p){h+='<option value="'+p+'"'+(V.calPv===p?' selected':'')+'>PV'+String(p).padStart(2,'0')+'</option>'});
   h+='</select>';
@@ -1513,10 +1846,11 @@ function rQualTracker(a){
           if(viewOnly){
             h+='<div style="margin-top:6px;padding:10px;border-radius:8px;background:var(--bg);font-size:16px;font-weight:600;color:'+(outTol?'var(--no)':'var(--tx)')+'">'+(v!=null?v+' '+f.unit:'—')+'</div>';
           }else{
-            var saveFn=f.isTramo?'setQFtramo':'setQF';
-            h+='<input class="inp" type="number" step="any" value="'+(v!=null?v:'')+'" onchange="'+saveFn+'(\''+code+'\',\''+k+'\',parseFloat(this.value)||null)" style="margin-top:6px;height:40px;font-size:16px;'+(outTol?'border-color:var(--no);color:var(--no)':'')+'" placeholder="'+f.unit+'">';
+            var saveFn=dynTol?'setQFtramo':'setQF';
+            h+='<input class="inp" type="number" step="any" value="'+(v!=null?v:'')+'" onchange="'+saveFn+'(\''+code+'\',\''+k+'\',Number.isFinite(this.valueAsNumber)?this.valueAsNumber:null)" style="margin-top:6px;height:40px;font-size:16px;'+(outTol?'border-color:var(--no);color:var(--no)':'')+'" placeholder="'+f.unit+'">';
           }
           if(tolLabel)h+='<div style="font-size:9px;color:var(--tx3);margin-top:4px">'+tolLabel+'</div>';
+          h+=bloqueIncidenciaMedida(code,k,lecturaIncidencia(code,k,qd),viewOnly);
           // Show accumulated distance for tramo fields
           if(f.isTramo){
             var ad=calcAccumDist(qd,px,pi,mpI,m.type);
@@ -1631,6 +1965,11 @@ function rQualTracker(a){
     
     h+='</div>';
     a.innerHTML=h;
+    if(V.campoBorrador){
+      var detalle=document.getElementById('inc-'+idIncidenciaMedida(code,V.campoBorrador));
+      delete V.campoBorrador;
+      if(detalle)detalle.scrollIntoView({block:'center'});
+    }
     if(V.qTab==='cim')vaGps();
   });
 }
@@ -2655,7 +2994,8 @@ function exportPunchlistPDF(pv,sub,phase){
     y+=5;
   });
   
-  // Summary
+  // Reservar espacio para el resumen y las firmas.
+  if(y>238){doc.addPage();y=20}
   y+=5;
   var pending=items.filter(function(i){return i.d.estado==='pendiente'}).length;
   var repaired=items.filter(function(i){return i.d.estado==='reparado'}).length;
@@ -2671,10 +3011,93 @@ function exportPunchlistPDF(pv,sub,phase){
   doc.text('Nombre:',14,y+20);doc.text('Nombre:',80,y+20);doc.text('Nombre:',146,y+20);
   doc.text('Fecha:',14,y+28);doc.text('Fecha:',80,y+28);doc.text('Fecha:',146,y+28);
   
+  anexoMedidasPunchlist(doc,items,pv,sub,phase);
   doc.save('Punchlist_PV'+pv+'_Sub'+sub+'_'+phase+'.pdf');
   toast('PDF generado','var(--ac)');
 }
 
+
+// Anexo de evidencia. Las incidencias manuales se siguen exportando en el listado.
+function anexoMedidasPunchlist(doc,items,pv,sub,phase){
+  var vinculadas=items.filter(function(item){return item.d.medicion});
+  if(!vinculadas.length)return;
+
+  var y;
+  function nuevaPagina(){
+    doc.addPage();
+    doc.setFont(undefined,'bold');
+    doc.setFontSize(14);
+    doc.text('Medidas y evidencias del Punchlist',14,18);
+    doc.setFont(undefined,'normal');
+    doc.setFontSize(9);
+    doc.text('PV'+String(pv).padStart(2,'0')+' / Subcampo '+sub+' / '+WF_LABELS[phase],14,25);
+    y=35;
+  }
+  function metadata(autor,fecha){
+    var partes=[];
+    if(autor)partes.push(autor);
+    if(Number.isFinite(fecha)&&fecha>0)partes.push(new Date(fecha).toLocaleString('es-ES'));
+    return partes.length?' · '+partes.join(' · '):'';
+  }
+  function textoLectura(titulo,m){
+    return titulo+': '+textoMedida(m)+metadata(m.autor,m.fecha);
+  }
+  function ciclo(tracker,pilar,inc,titulo){
+    var m=inc.medicion;
+    var filas=[
+      titulo+' · '+(inc.estado||'pendiente'),
+      'Control: '+m.control,
+      textoLectura('Medida inicial',m),
+      'Detectado'+metadata(inc.detectadoPor,inc.fechaDeteccion)
+    ];
+    if(inc.fechaCaptura)filas.push('Capturada en el dispositivo'+metadata(null,inc.fechaCaptura));
+    if(inc.fechaReparacion)filas.push('Reparado'+metadata(inc.reparadoPor,inc.fechaReparacion));
+    filas.push(inc.reinspeccion?textoLectura('Reinspección',inc.reinspeccion):'Reinspección: pendiente');
+    if(inc.fechaVerificacion)filas.push('Verificado'+metadata(inc.verificadoPor,inc.fechaVerificacion));
+
+    var foto=null;
+    if(fotoPunchlistValida(inc.foto)){
+      try{
+        var imagen=doc.getImageProperties(inc.foto);
+        if(imagen.width>0&&imagen.height>0){
+          var escala=Math.min(78/imagen.width,48/imagen.height);
+          foto={w:imagen.width*escala,h:imagen.height*escala};
+        }
+      }catch(e){/* El resto del expediente se puede exportar si falla la foto. */}
+    }
+    if(inc.foto&&!foto)filas.push('Foto: no disponible en el PDF.');
+    doc.setFontSize(9);
+    var lineas=filas.flatMap(function(fila){return doc.splitTextToSize(fila,179)});
+    var alto=10+lineas.length*5+(foto?foto.h+10:0);
+    if(y+alto>279)nuevaPagina();
+    doc.setFont(undefined,'bold');
+    doc.text((tracker||'-')+' · '+(pilar||'-'),14,y);
+    doc.setFont(undefined,'normal');
+    y+=6;
+    lineas.forEach(function(linea){
+      if(y>275)nuevaPagina();
+      doc.text(linea,14,y);
+      y+=5;
+    });
+    if(foto){
+      if(y+foto.h>276)nuevaPagina();
+      try{
+        doc.addImage(inc.foto,'JPEG',14,y,foto.w,foto.h);
+        y+=foto.h+5;
+      }catch(e){doc.text('Foto: no disponible en el PDF.',14,y);y+=5}
+    }
+    y+=4;
+  }
+
+  nuevaPagina();
+  vinculadas.forEach(function(item){
+    var p=item.d;
+    ciclo(p.tracker,p.pilar,p,'Incidencia actual');
+    (p.historial||[]).forEach(function(anterior,i){
+      if(anterior.medicion)ciclo(p.tracker,p.pilar,anterior,'Incidencia anterior '+(i+1));
+    });
+  });
+}
 
 // ============================================================
 // VERSIONING
