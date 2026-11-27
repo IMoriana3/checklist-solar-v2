@@ -496,11 +496,52 @@ function fichaIncidenciaMedida(p){
   }
   return h;
 }
+function prefijoBorradorIncidencia(uid){return 'obra:nc:'+PLANTA.id+':'+uid+':'}
 function claveBorradorIncidencia(uid,code,campo){
-  return 'obra:nc:'+PLANTA.id+':'+uid+':'+idIncidenciaMedida(code,campo);
+  return prefijoBorradorIncidencia(uid)+idIncidenciaMedida(code,campo);
 }
 function borradorIncidencia(clave){
   try{return JSON.parse(localStorage.getItem(clave)||'null')}catch(e){return null}
+}
+function listadoBorradoresIncidencia(){
+  if(!isCal()||V.viewOnly)return '';
+  var prefijo=prefijoBorradorIncidencia(U.uid)+'med_';
+  var borradores=[];
+  try{
+    var codigos=new Map(Object.keys(MASTER_DATA).map(function(code){return [code.replace(/\./g,'_'),code]}));
+    for(var i=0;i<localStorage.length;i++){
+      var clave=localStorage.key(i);
+      if(!clave||!clave.startsWith(prefijo))continue;
+      var b=borradorIncidencia(clave);
+      var campo=b&&b.medicion&&b.medicion.campo;
+      if(typeof campo!=='string'||!clave.endsWith('_'+campo))continue;
+      var code=codigos.get(clave.slice(prefijo.length,-campo.length-1));
+      if(code)borradores.push({code:code,b:b});
+    }
+  }catch(e){return ''}
+  if(!borradores.length)return '';
+  borradores.sort(function(x,y){return y.b.fechaCaptura-x.b.fechaCaptura});
+  var esc=PlantasObra.html;
+  return '<section aria-label="Borradores de incidencias" class="card" style="margin-bottom:12px">'+
+    '<div class="stitle" style="margin-top:0">Borradores de incidencias ('+borradores.length+')</div>'+
+    '<p style="font-size:12px;color:var(--td)">Guardados en este dispositivo.</p>'+
+    borradores.map(function(item){
+      var m=item.b.medicion,seguidor=MASTER_DATA[item.code];
+      var zona='PV'+String(seguidor.pv).padStart(2,'0')+' / Sub'+(seguidor.sub||0);
+      return '<button type="button" class="btn btn-ghost" style="text-align:left;width:100%;min-height:44px;margin-top:5px" data-tracker="'+esc(item.code)+'" data-campo="'+esc(m.campo)+'" onclick="abreBorradorDesdeCalidad(this)">'+
+        '<strong>'+esc(item.code+' · '+m.pilar)+'</strong><br>'+
+        '<span style="font-size:12px;color:var(--td)">'+esc(zona+' · '+m.control+' · '+m.valor+' '+m.unidad+(item.b.foto?' · Con foto':''))+'</span></button>';
+    }).join('')+'</section>';
+}
+function abreBorradorDesdeCalidad(boton){
+  if(!isCal()||V.viewOnly)return;
+  var code=boton.dataset.tracker,campo=boton.dataset.campo;
+  var b=borradorIncidencia(claveBorradorIncidencia(U.uid,code,campo));
+  if(!b||!b.medicion){R();return}
+  var seguidor=MASTER_DATA[code];
+  if(!seguidor)return;
+  V.campoBorrador=campo;
+  muestraControlIncidencia(code,seguidor.pv,seguidor.sub||0,b.medicion);
 }
 function descartaBorradorIncidencia(boton){
   if(V.viewOnly||!isCal())return;
@@ -519,7 +560,7 @@ function bloqueIncidenciaMedida(code,campo,lectura,viewOnly){
   if(!item&&!outTol&&!borrador)return '';
   var consultar=abierta||(item&&!outTol&&!borrador);
   var titulo=consultar?'Ver incidencia · '+item.estado:borrador?'Borrador de incidencia':'Abrir incidencia';
-  var h='<details class="pl-item" style="margin-top:8px"><summary>'+PlantasObra.html(titulo)+'</summary>';
+  var h='<details id="inc-'+PlantasObra.html(id)+'" class="pl-item" style="margin-top:8px"'+(borrador&&V.campoBorrador===campo?' open':'')+'><summary>'+PlantasObra.html(titulo)+'</summary>';
   if(consultar){
     h+=fichaIncidenciaMedida(item);
     if(edita&&item.estado==='reparado'){
@@ -631,8 +672,11 @@ async function abreIncidenciaMedida(form){
 function abreControlIncidencia(id){
   var p=(CACHE.punchlist||{})[id];
   if(!p||!p.medicion||(!isCal()&&!isCon()))return;
-  V.calTr=p.tracker;V.calPv=p.pv;V.calSub=p.sub;
-  V.qTab='cim';V.qFila=p.medicion.fila;V.qPi=p.medicion.indice;
+  muestraControlIncidencia(p.tracker,p.pv,p.sub,p.medicion);
+}
+function muestraControlIncidencia(code,pv,sub,medicion){
+  V.calTr=code;V.calPv=pv;V.calSub=sub;
+  V.qTab='cim';V.qFila=medicion.fila;V.qPi=medicion.indice;
   V.viewOnly=!isCal();V.screen='qualtracker';
   R();
 }
@@ -1538,6 +1582,7 @@ function rCalSelect(a){
   var pvs=[...new Set(Object.values(MASTER_DATA).map(function(d){return d.pv}))].sort(function(a2,b){return a2-b});
   var h='<div class="hdr"><button class="btn-icon" onclick="V.screen=\'modesel\';R()">←</button><div><h1>✅ Calidad</h1><div class="sub">Selecciona zona</div></div></div>';
   h+='<div class="cnt" style="padding-top:14px">';
+  h+=listadoBorradoresIncidencia();
   h+='<div class="stitle">PV</div><select class="sel" id="qsp" onchange="V.calPv=parseInt(this.value);V.calSub=0;renderCalSubs()"><option value="">Selecciona PV</option>';
   pvs.forEach(function(p){h+='<option value="'+p+'"'+(V.calPv===p?' selected':'')+'>PV'+String(p).padStart(2,'0')+'</option>'});
   h+='</select>';
@@ -1896,6 +1941,11 @@ function rQualTracker(a){
     
     h+='</div>';
     a.innerHTML=h;
+    if(V.campoBorrador){
+      var detalle=document.getElementById('inc-'+idIncidenciaMedida(code,V.campoBorrador));
+      delete V.campoBorrador;
+      if(detalle)detalle.scrollIntoView({block:'center'});
+    }
     if(V.qTab==='cim')vaGps();
   });
 }

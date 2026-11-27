@@ -86,9 +86,18 @@ const guardarMedida = (page, valor, ts) => page.evaluate(([campo, valor, ts]) =>
     // Al reabrir con conexión, el servidor puede mostrar ya otra lectura. Se envía la original.
     const semilla = {quality:{TR01_015:{...calidad,[campo]:102}}};
     const reabierta = await desconectada.otraPagina({offline:false,semilla});
-    await pantalla(reabierta.page,'qualtracker');
-    await reabierta.page.getByText('Borrador de incidencia',{exact:true}).click();
+    await reabierta.page.evaluate(([tracker,campo]) => {
+      const clave = claveBorradorIncidencia(U.uid,tracker,campo);
+      const copia = localStorage.getItem(clave);
+      localStorage.setItem(claveBorradorIncidencia('otro-usuario',tracker,campo),copia);
+      localStorage.setItem(clave.replace(prefijoBorradorIncidencia(U.uid),'obra:nc:otra-planta:'+U.uid+':'),copia);
+    },[tracker,campo]);
+    await pantalla(reabierta.page,'calselect');
+    const borradores = reabierta.page.getByRole('region',{name:'Borradores de incidencias'});
+    await borradores.getByText('Borradores de incidencias (1)',{exact:true}).waitFor();
+    await borradores.getByRole('button',{name:/TR01\.015.*3N-MP/}).click();
     await reabierta.page.getByRole('link',{name:'Descargar foto del borrador'}).waitFor();
+    assert.equal(await reabierta.page.evaluate(() => V.qPi),1);
     await reabierta.page.getByRole('button',{name:'Enviar borrador'}).click();
     await estado(reabierta.page,'pendiente');
     const nc = await leer(reabierta.page);
@@ -97,6 +106,8 @@ const guardarMedida = (page, valor, ts) => page.evaluate(([campo, valor, ts]) =>
     assert.ok(nc.fechaCaptura<=nc.fechaDeteccion);
     await reabierta.page.getByText('Ver incidencia · pendiente',{exact:true}).click();
     assert.equal(await reabierta.page.getByRole('button',{name:'Descartar borrador'}).count(),0);
+    await pantalla(reabierta.page,'calselect');
+    assert.equal(await borradores.count(),0);
     assert.deepEqual(reabierta.errores,[]);
     console.log('Borrador offline con foto, cierre de página y envío de la lectura original OK');
   } finally {await desconectada.cerrar()}
