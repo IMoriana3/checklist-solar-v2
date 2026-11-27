@@ -138,8 +138,20 @@ const guardarMedida = (page, valor, ts) => page.evaluate(([campo, valor, ts]) =>
       await setWFState(1,0,'hincado','OK','manual');
     });
     assert.equal(await page.evaluate(() => window.__FB_STORE.workflow['1_0_hincado'].state),'CAL');
-    await page.evaluate(async () => {
+    await page.evaluate(async campo => {
       ONLINE=true;
+      const code=Object.keys(MASTER_DATA).find(key => MASTER_DATA[key].pv===1&&!MASTER_DATA[key].sub);
+      window.__claveLocalFase=claveBorradorIncidencia(U.uid,code,campo);
+      localStorage.setItem(window.__claveLocalFase,JSON.stringify({medicion:{campo,pilar:'Poste de prueba',control:'Verticalidad',valor:120,unidad:'º'}}));
+      await setWFState(1,0,'hincado','OK','manual');
+    },campo);
+    await page.getByText('Queda 1 borrador de incidencia en este dispositivo.',{exact:true}).first().waitFor();
+    assert.equal(await aprobar.isEnabled(),false);
+    assert.equal(await page.evaluate(() => window.__FB_STORE.workflow_log),undefined);
+    await page.evaluate(async () => {
+      const borrador=localStorage.getItem(window.__claveLocalFase);
+      localStorage.setItem(window.__claveLocalFase.replace(prefijoBorradorIncidencia(U.uid),'obra:nc:otra-planta:'+U.uid+':'),borrador);
+      localStorage.removeItem(window.__claveLocalFase);
       await Promise.all([setWFState(1,0,'hincado','OK','manual'),setWFState(1,0,'hincado','OK','manual')]);
     });
     const aprobacion = await page.evaluate(() => ({

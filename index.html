@@ -392,6 +392,12 @@ async function apruebaFase(pv,sub,phase,trigger){
       toast(mensajeFasePendiente(pendientes),'var(--warn)');
       return;
     }
+    var borradores=borradoresEnFase(pv,sub,phase);
+    if(borradores){
+      R();
+      toast(mensajeBorradoresEnFase(borradores),'var(--warn)');
+      return;
+    }
     var fecha=firebase.database.ServerValue.TIMESTAMP;
     var logId=DB_PLANTA.ref('workflow_log').push().key;
     var changes={};
@@ -402,6 +408,16 @@ async function apruebaFase(pv,sub,phase,trigger){
     toast('Fase aprobada','var(--ac)');
   }catch(error){toast('No se pudo aprobar la fase: '+error.message,'var(--no)')}
   finally{aprobacionesEnCurso.delete(key)}
+}
+function borradoresEnFase(pv,sub,phase){
+  if(phase!=='hincado')return 0;
+  return borradoresIncidencias().filter(function(item){
+    var seguidor=MASTER_DATA[item.code];
+    return String(seguidor.pv)===String(pv)&&String(seguidor.sub||0)===String(sub);
+  }).length;
+}
+function mensajeBorradoresEnFase(n){
+  return n===1?'Queda 1 borrador de incidencia en este dispositivo.':'Quedan '+n+' borradores de incidencias en este dispositivo.';
 }
 function incidenciaSinVerificar(item){return item.d.estado!=='verificado'}
 function mensajeFasePendiente(n){
@@ -503,8 +519,8 @@ function claveBorradorIncidencia(uid,code,campo){
 function borradorIncidencia(clave){
   try{return JSON.parse(localStorage.getItem(clave)||'null')}catch(e){return null}
 }
-function listadoBorradoresIncidencia(){
-  if(!isCal()||V.viewOnly)return '';
+function borradoresIncidencias(){
+  if(!isCal()||V.viewOnly)return [];
   var prefijo=prefijoBorradorIncidencia(U.uid)+'med_';
   var borradores=[];
   try{
@@ -518,9 +534,12 @@ function listadoBorradoresIncidencia(){
       var code=codigos.get(clave.slice(prefijo.length,-campo.length-1));
       if(code)borradores.push({code:code,b:b});
     }
-  }catch(e){return ''}
+  }catch(e){return []}
+  return borradores;
+}
+function listadoBorradoresIncidencia(){
+  var borradores=borradoresIncidencias().sort(function(x,y){return y.b.fechaCaptura-x.b.fechaCaptura});
   if(!borradores.length)return '';
-  borradores.sort(function(x,y){return y.b.fechaCaptura-x.b.fechaCaptura});
   var esc=PlantasObra.html;
   return '<section aria-label="Borradores de incidencias" class="card" style="margin-bottom:12px">'+
     '<div class="stitle" style="margin-top:0">Borradores de incidencias ('+borradores.length+')</div>'+
@@ -1527,6 +1546,7 @@ function rCalDetail(a){
     // Punchlist items
     var plItems=getPLItems(pv,sub,phase);
     var pendientes=plItems.filter(incidenciaSinVerificar).length;
+    var borradores=canReview?borradoresEnFase(pv,sub,phase):0;
     if(plItems.length>0){
       plItems.forEach(function(item){
         var p=item.d;
@@ -1551,11 +1571,15 @@ function rCalDetail(a){
     }
     
     if(pendientes&&canReview)h+='<p style="color:var(--warn);font-size:12px">'+mensajeFasePendiente(pendientes)+'</p>';
+    if(borradores){
+      h+='<p style="color:var(--warn);font-size:12px">'+mensajeBorradoresEnFase(borradores)+'</p>';
+      h+='<button type="button" class="btn btn-ghost" onclick="V.screen=\'calselect\';R()">Ver borradores</button>';
+    }
 
     // Action buttons
     if(wf.state==='REV'||wf.state==='RREV')h+='<button onclick="setWFState('+pv+','+sub+',\''+phase+'\',\'CAL\',\'manual\')" class="btn btn-info" style="margin-top:8px;padding:10px;font-size:13px">🔍 Empezar revisión</button>';
     if(wf.state==='CAL'){
-      h+='<button onclick="setWFState('+pv+','+sub+',\''+phase+'\',\'OK\',\'manual\')" class="btn btn-primary" '+(pendientes?'disabled ':'')+'style="margin-top:8px;padding:10px;font-size:13px">✅ Aprobado</button>';
+      h+='<button onclick="setWFState('+pv+','+sub+',\''+phase+'\',\'OK\',\'manual\')" class="btn btn-primary" '+(pendientes||borradores?'disabled ':'')+'style="margin-top:8px;padding:10px;font-size:13px">✅ Aprobado</button>';
       h+='<button onclick="setWFState('+pv+','+sub+',\''+phase+'\',\'PUN\',\'manual\')" class="btn btn-danger" style="margin-top:6px;padding:10px;font-size:13px">📝 Generar Punchlist</button>';
     }
     var plCount=plItems.length;
